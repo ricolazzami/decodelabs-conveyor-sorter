@@ -25,9 +25,9 @@ Single-box assumption: only one box is between the two stations at a time. The c
 | Tag | Addr | Type | Device | Healthy / at-rest | Purpose |
 |-----|------|------|--------|-------------------|---------|
 | `E_STOP_OK` | %MX0.0 | NC, 24 V | E-Stop mushroom, latching twist release | **1 = healthy** | Safety feedback (motor also cut in hardware, see SAFETY.md) |
-| `PB_START` | %IX0.1 | NO | Green pushbutton | 0 | Start |
-| `PB_STOP` | %IX0.2 | NC | Red pushbutton | 1 | Controlled stop |
-| `PB_RESET` | %IX0.3 | NO | Blue/black pushbutton | 0 | Clears FAULT / ESTOP latch only — does not start |
+| `PB_START` | %MX0.1 | NO | Green pushbutton | 0 | Start |
+| `PB_STOP` | %MX0.2 | NC | Red pushbutton | 1 | Controlled stop |
+| `PB_RESET` | %MX0.3 | NO | Blue/black pushbutton | 0 | Clears FAULT / ESTOP latch only — does not start |
 | `S1_BOX` | %MX0.4 | PNP | Photo-eye, station 1 entry | 0 | Box at station 1 |
 | `S1_SIZE` | %MX0.5 | PNP | Photo-eye at height 60 mm | 0 | 1 = tall (≥ 100 mm) = LARGE |
 | `S2_BOX` | %MX0.6 | PNP | Photo-eye, station 2 entry | 0 | Box at station 2 |
@@ -75,7 +75,12 @@ any state ──(¬E_STOP_OK)──► ESTOP
 any fault condition ──► FAULT
 ```
 
-`RUNNING` exit order: S1 first, S2 second. Because station 2 is downstream, a box can only be at S2 after it has passed S1, so `box_class` is always valid.
+Two layers, on purpose:
+
+1. **Classification** runs on every scan, outside the state machine. A box at station 1 is read at the rising edge and again 200 ms later; the two readings decide `SMALL`, `LARGE` or `REJECT`. It cannot be deferred to the sequencer, because the box is only under the sensor for about one second - a busy actuator sequence would otherwise sample air and turn a good box into "unclassified".
+2. **The actuator sequence** is the state machine. `LARGE` boxes are counted in `p1_queued` and diverted at station 1, so they never reach station 2 and are deliberately kept out of the station-2 FIFO. Everything else (SMALL, REJECT) goes into that FIFO in arrival order and is decided at station 2: SMALL straight through, REJECT through pusher 2.
+
+`RUNNING` handles station 2 first, because that box is further down the belt and its record was taken at station 1. An arrival at station 2 is latched, so an event is never lost while the other station is being served.
 
 ## 5. State table
 
@@ -83,11 +88,11 @@ any fault condition ──► FAULT
 |---|-------|-------|----|----|------|-------------|
 | 0 | `IDLE` | 0 | 0 | 0 | START + all healthy | — |
 | 1 | `READY` | 0 | 0 | 0 | run seal set | — |
-| 2 | `RUNNING` | 1 | 0 | 0 | S1_BOX↑, S2_BOX↑, STOP, fault | — |
-| 3 | `S1_CLASSIFY` | 1 | 0 | 0 | 200 ms settle → tall / not tall | classify timeout → class := REJECT |
-| 4 | `P1_DIVERT` | 1 | 1 | 0 | P1_EXT ∧ ¬S1_BOX | T_extend |
-| 5 | `P1_RETURN` | 1 | 0 | 0 | P1_HOME | T_return |
-| 6 | `P2_DIVERT` | 1 | 0 | 1 | P2_EXT ∧ S2_CLEAR | T_extend |
+| 2 | `RUNNING` | 1 | 0 | 0 | S2 box↑ (latched), `p1_queued` > 0, STOP, fault | — |
+| 3 | *(reserved)* | 1 | 0 | 0 | unused — classification runs every scan, outside the CASE | — |
+| 4 | `P1_DIVERT` | 1 | 1 | 0 | P1_EXT | T_extend |
+| 5 | `P1_RETURN` | 1 | 0 | 0 | P1_HOME (or nothing to return) | T_return |
+| 6 | `P2_DIVERT` | 1 | 0 | 1 | P2_EXT | T_extend |
 | 7 | `P2_RETURN` | 1 | 0 | 0 | P2_HOME | T_return |
 | 8 | `STOPPING` | 0 | 0 | 0 | always → IDLE | — |
 | 9 | `FAULT` | 0 | 0 | 0 | RESET after cause cleared | — |
@@ -97,15 +102,15 @@ Rule: **`P1_VALVE` may be 1 only in `P1_DIVERT`; `P2_VALVE` only in `P2_DIVERT`.
 
 `ESTOP` is entered from every state. The motor is already de-energized by hardware; the state exists so the sequence cannot resume by itself.
 
-## 6. Ladder structure
+## 6. Program structure (Structured Text)
 
 | Group | Content |
 |-------|---------|
 | G1 Safety & enable | E_STOP_OK normalisation, MOTOR_OL, run seal, `reset_required` latch |
-| G2 State machine | one rung per state (one-hot bits), transition guards, `box_class` memory |
+| G2 State machine | one `CASE` branch per state, transition guards, the station-2 FIFO and `p1_queued` |
 | G3 Outputs | state → MOTOR_RUN / P1_VALVE / P2_VALVE / lamps (one coil per rung) |
 | G4 Timers & faults | T_classify, T_extend(×2), T_return(×2), T_reject_lamp, fault latch + cause word |
-| G5 Counters | count_SMALL, count_LARGE, count_REJECT (DINT) |
+| G5 Counters | CNT_SMALL, CNT_LARGE, CNT_REJECT in `%QW1..%QW3` |
 
 Rules applied everywhere:
 - Seal-in for RUN and FAULT, never a bare momentary.

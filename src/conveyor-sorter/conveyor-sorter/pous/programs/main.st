@@ -71,6 +71,7 @@ VAR
   (* ---------- classification ---------- *)
   size_sample  : BOOL := FALSE;  (* S1_SIZE latched at the rising edge *)
   s1_pending   : BOOL := FALSE;  (* a box is under sensor 1, not yet classified *)
+  s2_pending   : BOOL := FALSE;  (* a box reached station 2, not yet decided *)
   p1_queued    : INT  := 0;      (* LARGE boxes waiting for pusher 1 *)
   q_class      : ARRAY[0..7] OF INT;   (* 0 SMALL, 2 REJECT; never 1 *)
   q_head       : INT := 0;
@@ -122,6 +123,9 @@ reset_rise := reset_act AND NOT reset_prev;
 s1_rise    := S1_BOX AND NOT s1_prev;
 s2_rise    := S2_BOX AND NOT s2_prev;
 
+(* an arrival is latched: the sequencer may be busy with the other station *)
+IF s2_rise THEN s2_pending := TRUE; END_IF;
+
 (* ============================================================
    2. CLASSIFICATION - runs every scan, independent of the sequence
    ============================================================ *)
@@ -130,12 +134,11 @@ s2_rise    := S2_BOX AND NOT s2_prev;
 IF s1_rise THEN
   size_sample := S1_SIZE;
   s1_pending  := TRUE;
-  t_settle(IN := TRUE, PT := T#200ms);
 END_IF;
 
-IF NOT S1_BOX THEN
-  t_settle(IN := FALSE, PT := T#200ms);
-END_IF;
+(* the timer must be CALLED every scan - an IEC timer only updates its Q when
+   the function block is executed, not by the passage of time alone *)
+t_settle(IN := s1_pending AND S1_BOX, PT := T#200ms);
 
 IF s1_pending AND t_settle.Q THEN
   (* second sample, 200 ms after the first *)
@@ -157,7 +160,7 @@ IF s1_pending AND t_settle.Q THEN
 END_IF;
 
 (* the box left before a stable reading: it must not silently become SMALL *)
-IF s1_pending AND NOT S1_BOX AND NOT t_settle.Q THEN
+IF s1_pending AND NOT S1_BOX THEN
   q_class[q_tail MOD 8] := 2;
   q_tail := q_tail + 1;
   s1_pending := FALSE;
@@ -191,16 +194,16 @@ CASE state OF
     q_tail := 0;
     p1_queued := 0;
     s1_pending := FALSE;
+    s2_pending := FALSE;
     state := 2;
 
   2: (* RUNNING *)
     IF stop_rise OR NOT safety_ok THEN
       state := 8;
-    ELSIF p1_queued > 0 AND P1_HOME THEN
-      p1_did_ext := FALSE;
-      state := 4;                    (* P1_DIVERT, at station 1 *)
-    ELSIF s2_rise THEN
-      (* station 2: take the record that was made for this box *)
+    ELSIF s2_pending THEN
+      (* station 2 first: that box is further down the belt than any box still
+         waiting for pusher 1, and its record was taken at station 1 *)
+      s2_pending := FALSE;
       IF q_head < q_tail THEN
         drop_class := q_class[q_head MOD 8];
         q_head := q_head + 1;
@@ -213,6 +216,9 @@ CASE state OF
         p2_did_ext := FALSE;
         state := 6;                  (* P2_DIVERT: reject lane *)
       END_IF;
+    ELSIF p1_queued > 0 AND P1_HOME THEN
+      p1_did_ext := FALSE;
+      state := 4;                    (* P1_DIVERT, at station 1 *)
     END_IF;
 
   3: (* reserved: classification is the always-scanned block above *)
@@ -276,6 +282,7 @@ CASE state OF
     q_tail := 0;
     p1_queued := 0;
     s1_pending := FALSE;
+    s2_pending := FALSE;
     state := 0;
 
   9: (* FAULT - stays until Reset *)

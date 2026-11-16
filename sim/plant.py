@@ -253,7 +253,10 @@ class Plc:
         if not self.c.connect():
             raise SystemExit(f"cannot reach PLC at {host}:{port}")
         self.device_id = device_id
-        self._written: dict[str, bool] = {}
+        # one image, written in one request: two separate coil writes could be
+        # caught by a PLC scan in between, and the controller would then latch a
+        # size reading that does not belong to the box it just detected
+        self._image = [False] * len(MX_BITS)
 
     def _retry(self, fn, attempts: int = 8):
         """The runtime stops serving Modbus while it reloads - back off and retry.
@@ -274,12 +277,23 @@ class Plc:
                 except Exception:
                     pass
 
+    def _flush(self) -> None:
+        """Publish the whole input image in one Modbus request."""
+        self._retry(lambda: self.c.write_coils(MX_BASE, list(self._image),
+                                              device_id=self.device_id))
+
     def write_inputs(self, values: dict[str, bool]) -> None:
+        if self._update(values):
+            self._flush()
+
+    def _update(self, values: dict[str, bool]) -> bool:
+        changed = False
         for name, val in values.items():
-            if self._written.get(name) != val:
-                self._retry(lambda n=name, v=bool(val):
-                            self.c.write_coil(MX_BASE + MX_BITS[n], v, device_id=self.device_id))
-                self._written[name] = bool(val)
+            i = MX_BITS[name]
+            if self._image[i] != bool(val):
+                self._image[i] = bool(val)
+                changed = True
+        return changed
 
     def read_outputs(self) -> dict[str, bool]:
         r = self._retry(lambda: self.c.read_coils(QX_BASE, count=6, device_id=self.device_id))
@@ -291,9 +305,8 @@ class Plc:
         return dict(zip(QW_NAMES, r.registers))
 
     def set_input(self, name: str, value: bool) -> None:
-        self._retry(lambda: self.c.write_coil(MX_BASE + MX_BITS[name], bool(value),
-                                             device_id=self.device_id))
-        self._written[name] = bool(value)
+        if self._update({name: value}):
+            self._flush()
 
     def wait_ready(self, timeout_s: float = 30.0) -> None:
         """After a stop/start the runtime rebinds Modbus; wait until it answers."""

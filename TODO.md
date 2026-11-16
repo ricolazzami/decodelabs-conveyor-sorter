@@ -47,8 +47,10 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 - [x] Fault injection flags: `estop_at_s`, `overload_at_s`, `s1_eye_dead_at_s`,
   `cylinder_jam` with `cannot_extend` / `cannot_return`
 - [x] `sim/run-scenarios.sh` runs every scenario from a clean PLC state and prints one line each
-- [ ] `acceptance-10` still **fails** on the box-by-box verdict (counters are right, lanes are
-  not). That is the program's classification path, not the harness — see P3
+- [x] `acceptance-10` passes: every box in the expected lane, counters 4 / 3 / 3, no fault (3 runs)
+  - the two bugs it exposed were fixed: two separate coil writes were not atomic, so the PLC could
+    latch a size reading that did not belong to the box; and an IEC timer only updates `Q` when the
+    function block is executed, so the classification timer had to be called every scan
 
 
 ## P3 — Program skeleton (M2)
@@ -86,7 +88,7 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 ## P6 — Verification (M4)
 
 - [ ] Run TC-01…TC-34, fill `docs/TEST-LOG.md` with results + evidence
-- [ ] Scripted 10-box run, zero mis-sorts
+- [x] Scripted 10-box run, zero mis-sorts (`sim/scenarios/acceptance-10.json`)
 - [ ] Record video: 10-box cycle, E-Stop mid-divert, two-step recovery, HMI
 
 ## P7 — Documentation and submission (M5)

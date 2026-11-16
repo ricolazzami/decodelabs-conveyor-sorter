@@ -76,9 +76,16 @@ seconds, so the fault can land mid-run.
 The box table above it always prints, so a failing run still shows where each box
 went.
 
-## Current status (honest)
+## Current status
 
-`acceptance-10` **fails**: the counters reach 4 / 3 / 3 but individual boxes land
-in the wrong lane (a box with an untrustworthy reading passes straight instead of
-being rejected). That is a program bug in the classification path, not a harness
-bug, and it is tracked in `TODO.md` (P3, then P6). The five fault scenarios pass.
+`acceptance-10` passes: every box in its expected lane, counters 4 / 3 / 3, no
+fault. The five fault scenarios pass as well.
+
+Two harness bugs it exposed, both fixed:
+
+- the input image is now written in a single Modbus request (FC15). Two separate
+  coil writes could be caught by a PLC scan in between, and the controller would
+  then latch a size reading that did not belong to the box it had just detected.
+- the classification decides from a sample latched at the rising edge plus a
+  second sample 200 ms later, and an IEC timer only updates `Q` when the function
+  block is executed — so the timer is called on every scan.
