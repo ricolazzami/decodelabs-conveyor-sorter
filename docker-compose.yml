@@ -1,0 +1,33 @@
+services:
+  plc:
+    image: ghcr.io/autonomy-logic/openplc-runtime:latest
+    container_name: openplc-runtime
+    restart: unless-stopped
+    cap_add:
+      - SYS_NICE
+      - SYS_RESOURCE
+    ports:
+      - "8443:8443"   # Editor REST API
+      - "502:502"     # Modbus TCP slave (FUXA + plant simulator)
+    volumes:
+      - openplc-data:/var/run/runtime
+      # plugin enablement + Modbus TCP config survive container recreation
+      - ./config/openplc/plugins.conf:/workdir/plugins.conf:ro
+      - ./config/openplc/modbus_slave_config.json:/workdir/core/src/drivers/plugins/python/modbus_slave/modbus_slave_config.json:ro
+
+  hmi:
+    image: frangoteam/fuxa:latest
+    container_name: fuxa
+    restart: unless-stopped
+    ports:
+      - "1881:1881"   # web HMI
+    volumes:
+      - fuxa-app:/usr/src/app/FUXA/server/_appdata
+      - fuxa-db:/usr/src/app/FUXA/server/_db
+      - fuxa-images:/usr/src/app/FUXA/server/_images
+
+volumes:
+  openplc-data:
+  fuxa-app:
+  fuxa-db:
+  fuxa-images:

@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "name": "conveyor-sorter",
+    "type": "plc-project"
+  },
+  "data": {
+    "pous": [],
+    "dataTypes": [],
+    "libraries": [],
+    "configuration": {
+      "resource": {
+        "tasks": [
+          {
+            "name": "task0",
+            "triggering": "Cyclic",
+            "interval": "T#20ms",
+            "priority": 1
+          }
+        ],
+        "instances": [
+          {
+            "name": "instance0",
+            "program": "main",
+            "task": "task0"
+          }
+        ],
+        "globalVariables": []
+      }
+    },
+    "servers": [
+      {
+        "name": "plant-and-hmi",
+        "protocol": "modbus-tcp",
+        "modbusSlaveConfig": {
+          "enabled": true,
+          "transports": [
+            "tcp"
+          ],
+          "networkInterface": "0.0.0.0",
+          "port": 502,
+          "slaveId": 1,
+          "bufferMapping": {
+            "holdingRegisters": {
+              "qwCount": 16,
+              "mwCount": 16
+            },
+            "coils": {
+              "qxBits": 64,
+              "mxBits": 64
+            },
+            "discreteInputs": {
+              "ixBits": 64
+            },
+            "inputRegisters": {
+              "iwCount": 16
+            }
+          }
+        }
+      }
+    ],
+    "remoteDevices": []
+  }
+}

@@ -1,0 +1,21 @@
+# local credentials for the OpenPLC runtime created by docker-compose.yml
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# logs and build output
+*.log
+sim/run.log
+build/
+src/**/build/
+src/**/.openplc/
+squashfs-root/
+
+# editor / OS noise
+.DS_Store
+Thumbs.db

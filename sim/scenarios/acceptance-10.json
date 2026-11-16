@@ -1,0 +1,19 @@
+{
+  "name": "acceptance-10",
+  "note": "4 small, 3 large, 3 sensor-miss boxes (must end in reject). TC-13.",
+  "boxes": [
+    { "id": 1, "size": "small" },
+    { "id": 2, "size": "large" },
+    { "id": 3, "size": "small" },
+    { "id": 4, "size": "large" },
+    { "id": 5, "size": "small", "miss": true },
+    { "id": 6, "size": "small" },
+    { "id": 7, "size": "large" },
+    { "id": 8, "size": "large", "miss": true },
+    { "id": 9, "size": "small" },
+    { "id": 10, "size": "small", "miss": true }
+  ],
+  "plant": {
+    "start_delay_s": 1.0
+  }
+}
