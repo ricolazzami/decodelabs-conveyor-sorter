@@ -69,24 +69,24 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
     never seen, and the 200 ms two-sample classification is already a longer filter. A gap in the
     beam *inside* that 200 ms window would still read as two boxes — a documented limitation, and
     the fix at the bench is hardware debounce, not more PLC code (`docs/ARCHITECTURE.md` §8)
-- [x] G5 counters: `CNT_SMALL` / `CNT_LARGE` / `CNT_REJECT` in `%QW1..%QW3`, `FAULT_CODE` (1-7) in `%QW4`
+- [x] G5 counters: `CNT_SMALL` / `CNT_LARGE` / `CNT_REJECT` in `%QW1..%QW3`, `FAULT_CODE` (0-8) in `%QW4`
 - [x] Compile clean and upload (editor CLI answers `"ok": true`, no error warnings)
 - [x] Cold start → IDLE
 - [x] Run TC-02…TC-14: **14/14 pass** (`docs/TEST-LOG.md`, `sim/tests.py`), and all six scenarios
   pass (`sim/run-scenarios.sh`)
 
-## P4 — Safety (M3)
+## P4 — Safety (M3) — DONE
 
-- [ ] `ESTOP` reachable from every state
-- [ ] Both valves forced off in ESTOP and FAULT
-- [ ] `reset_required`: Reset clears latch, Start is separate
-- [ ] Pusher extend/return timeouts → retract + FAULT
-- [ ] Pusher-without-box guard (SR-06)
-- [ ] Motor overload → FAULT
-- [ ] FUXA cannot clear `reset_required` (SR-08)
-- [ ] Draw `docs/img/wiring.png` (power, contactor, E-Stop, valve supply)
-- [ ] Run TC-15…TC-26, capture evidence
-- [ ] Optional: 24 V relay + button bench test for TC-17 video
+- [x] `ESTOP` reachable from every state — TC-16 (E-Stop pressed in states 0, 2, 4, 5, 6, 7, 9 → ESTOP)
+- [x] Both valves forced off in ESTOP and FAULT — output guard block; TC-16, TC-26
+- [x] `reset_required`: Reset clears latch, Start is separate — TC-18/19/20 (release alone does not restart)
+- [x] Pusher extend/return timeouts → retract + FAULT — TC-22 (fault 2), TC-23 (fault 5)
+- [x] Pusher-without-box guard (SR-06) — a pusher strokes only while its box is in the zone; a stale record raises fault 8 instead of stroking into air — TC-21
+- [x] Motor overload → FAULT (6) — TC-24 (Reset blocked until the cause is cleared)
+- [x] FUXA cannot clear `reset_required` (SR-08) — there is no reset coil; TC-25
+- [x] Draw `docs/img/wiring.png` (power, contactor, E-Stop, valve supply) — `wiring.svg` → `wiring.png`
+- [x] Run TC-15...TC-26, capture evidence — **25 PASS, 1 BLOCKED, 0 FAIL** (`docs/TEST-LOG.md`)
+- [ ] Optional: 24 V relay + button bench test for TC-17 video — **not done, no kit**; TC-17 is reported BLOCKED with the design evidence (wiring diagram + SAFETY.md §2/§7), not passed
 
 ## P5 — HMI (M4)
 

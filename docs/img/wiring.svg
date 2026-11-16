@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  docs/img/wiring.svg  ->  docs/img/wiring.png  (rsvg-convert -o wiring.png wiring.svg)
+
+  Layer 1 (the real safety function): the E-Stop NC contact sits in series with the
+  K1 contactor coil, so pressing it drops K1 and removes motor power and the valve
+  supply regardless of what the PLC is doing. The PLC only ever adds a contact.
+  See docs/SAFETY.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1000" viewBox="0 0 1120 1000">
+  <style>
+    text   { font-family: "DejaVu Sans Mono", monospace; font-size: 13px; fill: #12181f; }
+    .t     { font-size: 19px; font-weight: bold; }
+    .head  { font-size: 15px; font-weight: bold; fill: #0b3d91; }
+    .small { font-size: 11.5px; fill: #4a5561; }
+    .dev   { fill: #ffffff; stroke: #12181f; stroke-width: 1.6; }
+    .safe  { fill: #fff2f2; stroke: #a11212; stroke-width: 2.2; }
+    .plc   { fill: #f4f8ff; stroke: #0b3d91; stroke-width: 1.8; }
+    .wire  { stroke: #12181f; stroke-width: 1.8; fill: none; }
+    .rail  { stroke: #12181f; stroke-width: 2.6; fill: none; }
+    .sig   { stroke: #0b3d91; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; }
+  </style>
+
+  <rect x="0" y="0" width="1120" height="1000" fill="#fbfcfd"/>
+  <text class="t" x="30" y="36">Conveyor box sorter — wiring, one line per circuit</text>
+  <text class="small" x="30" y="56">Training-kit design. Not a certified safety function: single channel, no safety relay, no monitored reset (docs/SAFETY.md §8).</text>
+
+  <!-- ===================== 1. motor power ===================== -->
+  <text class="head" x="30" y="100">1 · Motor power — the E-Stop is in here, not in the PLC</text>
+
+  <text x="60" y="130">L1</text>
+  <path class="wire" d="M60 140 V125"/>
+  <text class="small" x="36" y="118">230 VAC</text>
+  <path class="rail" d="M60 140 H150"/>
+
+  <rect class="dev" x="150" y="120" width="110" height="40" rx="4"/>
+  <text x="162" y="137">Q1 motor</text>
+  <text x="162" y="153">protection</text>
+
+  <path class="wire" d="M260 140 H320"/>
+  <rect class="dev" x="320" y="120" width="120" height="40" rx="4"/>
+  <text x="336" y="137">K1 main</text>
+  <text x="336" y="153">contacts</text>
+
+  <path class="wire" d="M440 140 H560"/>
+  <circle cx="610" cy="140" r="30" class="dev"/>
+  <text x="598" y="146">M</text>
+  <text x="576" y="188" class="small">conveyor motor</text>
+
+  <path class="wire" d="M640 140 H820"/>
+  <text x="826" y="145">N</text>
+  <text x="30" y="212" class="small">Q1 is sized for the motor. K1 is the only thing that connects the motor — the PLC cannot.</text>
+
+  <!-- ===================== 2. control circuit ===================== -->
+  <text class="head" x="30" y="252">2 · Contactor coil circuit (24 VDC) — pressing the E-Stop breaks this line, so K1 drops</text>
+
+  <text x="60" y="292">+24V</text>
+  <path class="rail" d="M60 302 H150"/>
+
+  <rect class="safe" x="150" y="282" width="130" height="52" rx="4"/>
+  <text x="163" y="302">E-Stop NC</text>
+  <text x="163" y="320" class="small">latching mushroom</text>
+
+  <path class="wire" d="M280 308 H330"/>
+  <rect class="dev" x="330" y="282" width="130" height="52" rx="4"/>
+  <text x="343" y="302">MOTOR_OL NC</text>
+  <text x="343" y="320" class="small">thermal overload</text>
+
+  <path class="wire" d="M460 308 H510"/>
+  <rect class="dev" x="510" y="282" width="130" height="52" rx="4"/>
+  <text x="526" y="302">K1 aux NC</text>
+  <text x="526" y="320" class="small">seal / feedback</text>
+
+  <path class="wire" d="M640 308 H690"/>
+  <rect class="dev" x="690" y="282" width="150" height="52" rx="4"/>
+  <text x="704" y="302">PLC relay contact</text>
+  <text x="704" y="320" class="small">MOTOR_RUN  %QX0.0</text>
+
+  <path class="wire" d="M840 308 H890"/>
+  <rect class="dev" x="890" y="292" width="60" height="32" rx="4"/>
+  <text x="904" y="313">K1</text>
+  <path class="wire" d="M950 308 H1030"/>
+  <text x="1036" y="313">0V</text>
+  <text x="884" y="346" class="small">coil</text>
+
+  <!-- E_STOP_OK feedback: the second NC contact of the same mushroom, into the PLC -->
+  <path class="sig" d="M215 334 V360 H20 V700 H34"/>
+  <text class="small" x="30" y="384">E_STOP_OK  %MX0.0   (1 = healthy, 0 = pressed): the second NC contact of the same mushroom</text>
+  <text class="small" x="30" y="400">The PLC can only ADD a contact in the K1 coil line — it can never bridge the E-Stop.</text>
+
+  <!-- ===================== 3. valve supply ===================== -->
+  <text class="head" x="30" y="424">3 · Pusher valve supply — switched 24 V from a K1 aux contact, so the E-Stop drops the valves too</text>
+
+  <text x="60" y="462">+24V</text>
+  <path class="rail" d="M60 472 H150"/>
+  <rect class="dev" x="150" y="452" width="180" height="40" rx="4"/>
+  <text x="162" y="477">K1 aux NO (switched)</text>
+
+  <path class="wire" d="M330 472 H402"/>
+  <circle cx="424" cy="472" r="22" class="dev"/>
+  <text x="404" y="478">Y1</text>
+  <text x="330" y="448" class="small">P1_VALVE (divert LARGE)</text>
+  <path class="wire" d="M446 472 H860 V540"/>
+
+  <path class="wire" d="M200 492 V540 H422"/>
+  <circle cx="444" cy="540" r="22" class="dev"/>
+  <text x="424" y="546">Y2</text>
+  <text x="480" y="566" class="small">P2_VALVE (divert REJECT)</text>
+  <path class="wire" d="M466 540 H860"/>
+  <text x="868" y="512">0V</text>
+
+  <text x="30" y="596" class="small">Both solenoids are spring-return. With the valve supply gone the cylinders go home by themselves, which is why a stopped line is safe to walk up to.</text>
+
+  <!-- ===================== 4. PLC block ===================== -->
+  <rect class="plc" x="30" y="610" width="1060" height="360" rx="6"/>
+  <text class="head" x="50" y="640">4 · PLC — the soft PLC used in this project</text>
+  <text class="small" x="50" y="660">OpenPLC Runtime v4 over Modbus TCP. Full map with safe states: docs/ARCHITECTURE.md §2–3.</text>
+
+  <text x="50" y="692">Inputs</text>
+  <text class="small" x="50" y="714">E_STOP_OK   NC   1 = healthy            %MX0.0</text>
+  <text class="small" x="50" y="732">PB_START    NO   start                  %MX0.1</text>
+  <text class="small" x="50" y="750">PB_STOP     NC   1 = not pressed        %MX0.2</text>
+  <text class="small" x="50" y="768">PB_RESET    NO   clears the latch only  %MX0.3</text>
+  <text class="small" x="50" y="786">S1_BOX      PNP  box at station 1       %MX0.4</text>
+  <text class="small" x="50" y="804">S1_SIZE     PNP  tall (60 mm eye)       %MX0.5</text>
+
+  <text class="small" x="430" y="714">S2_BOX      PNP  box at station 2       %MX0.6</text>
+  <text class="small" x="430" y="732">P1_HOME     reed cylinder 1 retracted  %MX0.7</text>
+  <text class="small" x="430" y="750">P1_EXT      reed cylinder 1 extended   %MX1.0</text>
+  <text class="small" x="430" y="768">P2_HOME/EXT reed cylinder 2        %MX1.1 / %MX1.2</text>
+  <text class="small" x="430" y="786">MOTOR_OL    NC   1 = healthy            %MX1.3</text>
+  <text class="small" x="430" y="804">MODE_AUTO, S2_CLEAR                 %MX1.4 / %MX1.5</text>
+
+  <text x="800" y="692">Outputs</text>
+  <text class="small" x="800" y="714">MOTOR_RUN   %QX0.0  → K1 contact above</text>
+  <text class="small" x="800" y="732">P1_VALVE    %QX0.1  → Y1</text>
+  <text class="small" x="800" y="750">P2_VALVE    %QX0.2  → Y2</text>
+  <text class="small" x="800" y="768">LAMP_RUN / LAMP_FAULT   %QX0.3 / %QX0.4</text>
+  <text class="small" x="800" y="786">LAMP_REJ                %QX0.5</text>
+
+  <text x="800" y="820">HMI — FUXA over Modbus TCP</text>
+  <text class="small" x="800" y="840">HMI_START / HMI_STOP only (coils 80–81).</text>
+  <text class="small" x="800" y="858">No reset coil exists, so the HMI cannot</text>
+  <text class="small" x="800" y="876">clear a safety latch (SR-08).</text>
+
+  <text class="small" x="50" y="856">All four photo-eyes are PNP, 24 V. Both reeds per cylinder are read separately, so a stuck</text>
+  <text class="small" x="50" y="874">cylinder is detected instead of assumed. Reset is a physical input: Start is a separate press.</text>
+  <text class="small" x="50" y="906">In this project the input image arrives over Modbus, so on real hardware the input column</text>
+  <text class="small" x="50" y="924">becomes %IX — the tags, the wiring intent and the logic do not change.</text>
+</svg>

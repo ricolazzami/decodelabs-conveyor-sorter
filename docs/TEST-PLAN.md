@@ -34,12 +34,12 @@ Tags per `ARCHITECTURE.md` §2–3.
 | ID | Req | Pre | Action | Expected |
 |----|-----|-----|--------|----------|
 | TC-15 | SR-01, SR-02 | RUNNING, motor on | Press E-Stop | Motor drops (hardware), state = ESTOP, both valves 0, red lamp on, sequence frozen |
-| TC-16 | SR-01 | Each state in turn (IDLE, RUNNING, S1_CLASSIFY, P1_DIVERT, P1_RETURN, P2_DIVERT, P2_RETURN, FAULT) | Press E-Stop in each | Same result in all 9 states |
-| TC-17 | SR-03 | E-Stop pressed, `MOTOR_RUN` forced 1 | Observe motor | Stays off — hardware independence (schematic/video evidence; simulation-only if no kit) |
+| TC-16 | SR-01 | Each reachable state in turn (IDLE, RUNNING, P1_DIVERT, P1_RETURN, P2_DIVERT, P2_RETURN, FAULT) | Press E-Stop in each | Same result in all 7 states: ESTOP, motor off, both valves off (STOPPING lasts one scan; ESTOP is the destination, not a source) |
+| TC-17 | SR-03 | E-Stop pressed, `MOTOR_RUN` forced 1 | Observe motor | Stays off — hardware independence (BLOCKED without kit: reported with wiring-diagram design evidence) |
 | TC-18 | SR-04, FR-12 | ESTOP | Release E-Stop only | Stays ESTOP, motor off, no restart |
 | TC-19 | SR-04, FR-12 | ESTOP, E-Stop released | Press Reset | Latch clears, state = IDLE (not RUNNING) |
 | TC-20 | FR-12 | After TC-19 | Press Start | Line runs — proves two-step recovery |
-| TC-21 | SR-06 | RUNNING, no box at station 1 | Force `P1_DIVERT` condition manually | Valve cannot energize; guard holds |
+| TC-21 | SR-06 | RUNNING, no box at station 1 | Hold a stale station-1 record with the box gone | Valve never energizes (quiet line and stale record); stale record raises fault 8 |
 | TC-22 | SR-07 | P1_DIVERT | Never assert `P1_EXT` | After `T_extend`: valve off, FAULT, motor off |
 | TC-23 | SR-07 | P2_RETURN | Never assert `P2_HOME` | After `T_return`: FAULT, motor off |
 | TC-24 | SR-05 | RUNNING | Open `MOTOR_OL` | FAULT, motor off, Reset required |

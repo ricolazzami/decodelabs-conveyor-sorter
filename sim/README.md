@@ -45,6 +45,16 @@ seconds, so the fault can land mid-run.
 | `cylinder_jam: {p1\|p2: "cannot_return"}` | cylinder stays out | return timeout, fault 3 (P1) / 5 (P2) |
 | `s1_eye_dead_at_s` | station 1 presence eye dies | no box is classified, so no box may be guessed SMALL: unseen boxes must be rejected |
 
+Two more faults are proved by `sim/tests.py` rather than by a scenario file, because
+they need to be injected at an exact moment that a timeline cannot pin down:
+
+- **Both stations occupied for 3 s → fault 7.** A box square over both eyes trips the
+  process monitor.
+- **A pusher record with no box → fault 8 (SR-06).** The scenario holds a stale
+  station-1 record with the box already gone and proves the valve never energizes.
+- **E-Stop pressed mid-state.** `Plant.force_estop()` drops the E-Stop between ticks,
+  which is how TC-15, TC-16 and TC-26 press the mushroom from a chosen state.
+
 ## Scenario file
 
 ```jsonc
@@ -76,7 +86,7 @@ seconds, so the fault can land mid-run.
 The box table above it always prints, so a failing run still shows where each box
 went.
 
-## Acceptance test runner (TC-01 … TC-14)
+## Test runner (TC-01 … TC-26)
 
 `sim/tests.py` runs the test plan's startup and sorting cases against the live
 PLC and writes the results to `docs/TEST-LOG.md`:
@@ -84,12 +94,21 @@ PLC and writes the results to `docs/TEST-LOG.md`:
 ```bash
 .venv/bin/python sim/tests.py          # every case, clean PLC state before each
 .venv/bin/python sim/tests.py TC-10    # one case
+.venv/bin/python sim/tests.py TC-15 TC-26
 ```
 
 It reloads the program (stop/start, which is what clears the counters) before
 each case, reads the plant the same way `plant.py` does, and prints one line per
 case plus the evidence string that goes into the log. TC-13 shells out to the
 scenario runner, so a green log means both entry points agree.
+
+Each case prints one of three verdicts:
+
+- `PASS` — the promise held.
+- `FAIL` — it did not; the evidence string says what was seen.
+- `BLOCKED` — the case cannot be executed here (TC-17 needs physical hardware to
+  prove the E-Stop is independent of the PLC). It is not counted as a pass: the
+  report states it as blocked, with the design evidence only.
 
 The cases that need the sequence to finish after a single stray input — TC-10 in
 particular — drive an **empty** plant so the cylinders still report their reed
@@ -100,6 +119,8 @@ forever, which is correct behaviour but useless as a test of counting.
 
 `acceptance-10` passes: every box in its expected lane, counters 4 / 3 / 3, no
 fault. The five fault scenarios pass as well.
+
+Full suite (`sim/tests.py`, through P4): **25 PASS, 1 BLOCKED (TC-17, no kit), 0 FAIL**.
 
 Two harness bugs it exposed, both fixed:
 

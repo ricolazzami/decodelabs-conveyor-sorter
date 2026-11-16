@@ -28,6 +28,7 @@ from plant import MX_BITS, TICK_S, Box, Plant, Plc
 urllib3.disable_warnings()          # the runtime's certificate is self-signed
 ROOT = Path(__file__).resolve().parent.parent
 RUNNING, FAULT, ESTOP = 2, 9, 10
+HMI_START_COIL, HMI_STOP_COIL = 80, 81     # %MX2.0 / %MX2.1 in the program
 
 
 # ---------------------------------------------------------------- infrastructure
@@ -174,6 +175,31 @@ class Plc2(Plc):
             plant.step(TICK_S, self.read_outputs())
             time.sleep(TICK_S)
         self.write_inputs({**plant.inputs(), **overrides})
+
+    def pump(self, plant: Plant, seconds: float, overrides: dict | None = None,
+             watch=None) -> list[int]:
+        """Run the plant clock, forcing `overrides` on top of the plant image.
+
+        Returns the list of distinct PLC states seen. `watch(qx, st)` is called
+        once per tick, which is how a case proves something never happened.
+        """
+        states: list[int] = []
+        end = time.time() + seconds
+        while time.time() < end:
+            qx = self.read_outputs()
+            st = self.read_words()["state"]
+            if not states or states[-1] != st:
+                states.append(st)
+            if watch:
+                watch(qx, st)
+            plant.step(TICK_S, qx)
+            self.write_inputs({**plant.inputs(), **(overrides or {})})
+            time.sleep(TICK_S)
+        return states
+
+    def coil(self, addr: int, value: bool) -> None:
+        """Write a raw Modbus coil - used to play at being the HMI."""
+        self._retry(lambda: self.c.write_coil(addr, bool(value), device_id=self.device_id))
 
     def pulse_ms(self, name: str, ms: int) -> None:
         self.w(**{name: True})
@@ -368,10 +394,291 @@ def tc14(ctx) -> tuple[bool, str]:
     return ok, f"lanes={lanes}, counts={w['count_small']}/{w['count_large']}/{w['count_reject']}"
 
 
+# ---------------------------------------------------------------- safety cases
+def _sit_in(plc: Plc2, target: int, faults: dict | None = None,
+            boxes: list[Box] | None = None, timeout: float = 30.0):
+    """Bring the line up and run it until the PLC is in `target`.
+
+    Returns the plant if the state was reached, otherwise None. Only the states
+    a line actually passes through can be entered this way; STOPPING (8) lasts a
+    single scan, and ESTOP is TC-15's job.
+    """
+    plc.boot()
+    if not plc.start():
+        return None
+    plant = Plant(boxes=boxes or [Box(id=1, size="large"), Box(id=2, size="small"),
+                                  Box(id=3, size="small", uncertain=True)],
+                  start_delay_s=0.5, faults=faults or {})
+    if target == 0:
+        return plant                       # already sitting in IDLE
+    end = time.time() + timeout
+    while time.time() < end:
+        qx = plc.read_outputs()
+        if plc.read_words()["state"] == target:
+            return plant
+        plant.step(TICK_S, qx)
+        plc.write_inputs(plant.inputs())
+        time.sleep(TICK_S)
+    return None
+
+
+def tc15(ctx) -> tuple[bool, str]:
+    """SR-01/SR-02: E-Stop mid-run. Motor drops, valves drop, counters frozen."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "did not reach RUNNING"
+    plant = Plant(boxes=[Box(id=1, size="large"), Box(id=2, size="small")],
+                  start_delay_s=0.5, faults={"estop_at_s": 3.0})
+    plc.pump(plant, 2.5)                 # running normally
+    before = plc.words()
+    trip = plc.pump(plant, 2.0)          # the plant presses the mushroom at t=3 s
+    after = plc.words()
+    still = plc.pump(plant, 1.0)
+    frozen = (after["count_small"], after["count_large"], after["count_reject"]) == \
+             (before["count_small"], before["count_large"], before["count_reject"])
+    ok = (ESTOP in trip and trip[-1] == ESTOP and still == [ESTOP] and after["fault_code"] == 1
+          and not plc.qx()["MOTOR_RUN"] and not plc.qx()["P1_VALVE"]
+          and not plc.qx()["P2_VALVE"] and plc.qx()["LAMP_FAULT"] and frozen)
+    return ok, (f"states {trip} then {still}; fault {after['fault_code']}; motor and both valves "
+                f"off; red lamp on; counters frozen at "
+                f"{after['count_small']}/{after['count_large']}/{after['count_reject']}")
+
+
+def tc16(ctx) -> tuple[bool, str]:
+    """SR-01: the E-Stop lands the same way from whichever state it is pressed in."""
+    plc, rt = ctx["plc"], ctx["rt"]
+    checked, bad = [], []
+    for target in (0, RUNNING, 4, 5, 6, 7, FAULT):
+        rt.cycle()
+        plc.wait_ready()
+        plant = _sit_in(plc, target, faults={"overload_at_s": 2.0} if target == FAULT else None)
+        if plant is None:
+            bad.append(f"state {target} not reached")
+            continue
+        plant.force_estop()
+        plc.write_inputs(plant.inputs())     # the PLC sees the mushroom at once
+        time.sleep(0.1)
+        after = []
+        seen = plc.pump(plant, 0.8, watch=lambda qx, st: after.append((st, qx["MOTOR_RUN"],
+                                                                      qx["P1_VALVE"], qx["P2_VALVE"])))
+        if all(st == ESTOP and not (m or p1 or p2) for st, m, p1, p2 in after):
+            checked.append(target)
+        else:
+            bad.append(f"state {target}: {sorted(set(after))}")
+    ok = not bad and len(checked) == 7
+    return ok, (f"E-Stop pressed in states {checked} -> ESTOP with motor and both valves off; "
+                f"problems: {bad or 'none'}")
+
+
+def tc17(ctx) -> tuple[str, str]:
+    """SR-03: hardware independence. Cannot be executed - no kit."""
+    return "BLOCKED", ("design evidence only: docs/img/wiring.png puts the E-Stop NC contact in "
+                      "series with the K1 coil, so MOTOR_RUN cannot energize the motor while it is "
+                      "open. No physical kit exists (docs/SAFETY.md §7), so this case is not "
+                      "executed and the report must say so.")
+
+
+def _recovery(plc: Plc2) -> dict:
+    """Trip the E-Stop mid-run, then walk the recovery: release, Reset, Start."""
+    plc.boot()
+    started = plc.start()
+    plant = Plant(boxes=[Box(id=1, size="small"), Box(id=2, size="large")],
+                  start_delay_s=0.5)
+    plc.pump(plant, 2.5)
+    plant.force_estop()
+    plc.pump(plant, 0.6)
+    out = {"started": started, "trip": (plc.state(), plc.words()["fault_code"],
+                                       plc.qx()["MOTOR_RUN"]), "plant": plant}
+    plc.pump(plant, 1.0, overrides={"E_STOP_OK": True})     # released, nothing else
+    out["released"] = (plc.state(), plc.qx()["MOTOR_RUN"])
+    plc.pulse("PB_RESET")
+    time.sleep(0.4)
+    out["after_reset"] = (plc.state(), plc.words()["fault_code"])
+    out["after_start"] = plc.start()
+    return out
+
+
+def tc18(ctx) -> tuple[bool, str]:
+    """SR-04: releasing the E-Stop alone must not restart anything."""
+    r = _recovery(ctx["plc"])
+    ok = (r["started"] and r["trip"][0] == ESTOP and r["released"] == (ESTOP, False))
+    return ok, (f"trip {r['trip']}; after releasing the button alone state {r['released'][0]} "
+                f"with MOTOR_RUN={r['released'][1]} - it does not resume by itself")
+
+
+def tc19(ctx) -> tuple[bool, str]:
+    """SR-04/FR-12: Reset clears the latch and lands in IDLE, not in RUNNING."""
+    r = _recovery(ctx["plc"])
+    ok = (r["started"] and r["after_reset"] == (0, 0))
+    return ok, (f"after Reset: state {r['after_reset'][0]} (IDLE, not RUNNING), "
+                f"fault cleared to {r['after_reset'][1]}")
+
+
+def tc20(ctx) -> tuple[bool, str]:
+    """FR-12: only after the Reset does Start run the line again - two-step recovery."""
+    r = _recovery(ctx["plc"])
+    blocked = r["released"][0] == ESTOP
+    ok = r["started"] and blocked and r["after_start"] and ctx["plc"].state() == RUNNING
+    return ok, (f"release alone: no start; Reset then Start: state {ctx['plc'].state()}, "
+                f"MOTOR_RUN={ctx['plc'].qx()['MOTOR_RUN']} - two steps, as designed")
+
+
+def tc21(ctx) -> tuple[bool, str]:
+    """SR-06: a pusher may not stroke unless the box it was measured for is still
+    in the zone. From the outside a case cannot force an internal state, so this
+    plays the two things that are observable: a quiet line, and a stale record.
+    """
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "did not reach RUNNING"
+    quiet_valve: list[bool] = []
+    plc.pump(Plant(boxes=[], start_delay_s=0.0), 3.0,
+             watch=lambda qx, st: quiet_valve.append(qx["P1_VALVE"] or qx["P2_VALVE"]))
+    quiet_ok = not any(quiet_valve) and plc.state() == RUNNING
+
+    stale_valve: list[bool] = []
+    plant = Plant(boxes=[], start_delay_s=0.0)
+    hold = {"P1_HOME": False, "P1_EXT": False}          # cylinder 1 is out, cannot stroke
+    plc.pump(plant, 0.5, overrides={**hold, "S1_BOX": True, "S1_SIZE": True},
+             watch=lambda qx, st: stale_valve.append(qx["P1_VALVE"]))
+    plc.pump(plant, 0.3, overrides=hold,                # the box goes away
+             watch=lambda qx, st: stale_valve.append(qx["P1_VALVE"]))
+    plc.pump(plant, 0.5, overrides={"P1_HOME": True, "P1_EXT": False},
+             watch=lambda qx, st: stale_valve.append(qx["P1_VALVE"]))
+    w = plc.words()
+    stale_ok = w["state"] == FAULT and w["fault_code"] == 8 and not any(stale_valve)
+    ok = quiet_ok and stale_ok
+    return ok, (f"quiet line, no box: valve never energised={quiet_ok}; "
+                f"record with no box in the zone: valve never energised={not any(stale_valve)}, "
+                f"state {w['state']}, fault {w['fault_code']} (8 = no box in the pusher zone)")
+
+
+def tc22(ctx) -> tuple[bool, str]:
+    """SR-07: pusher 1 never reaches its extended sensor -> timeout, retract, FAULT."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "did not reach RUNNING"
+    plant = Plant(boxes=[Box(id=1, size="large"), Box(id=2, size="small")],
+                  start_delay_s=0.5, faults={"cylinder_jam": {"p1": "cannot_extend"}})
+    seen: list[bool] = []
+    states = plc.pump(plant, 4.0, watch=lambda qx, st: seen.append(qx["P1_VALVE"]))
+    w = plc.words()
+    ok = (w["state"] == FAULT and w["fault_code"] == 2 and not plc.qx()["MOTOR_RUN"]
+          and not plc.qx()["P1_VALVE"] and 4 in states)
+    return ok, (f"states {states}; fault {w['fault_code']} (2 = P1 extend timeout); "
+                f"valve off, motor off")
+
+
+def tc23(ctx) -> tuple[bool, str]:
+    """SR-07: pusher 2 extends but never comes home -> return timeout, FAULT."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "did not reach RUNNING"
+    plant = Plant(boxes=[Box(id=1, size="small"), Box(id=2, size="small", uncertain=True)],
+                  start_delay_s=0.5, faults={"cylinder_jam": {"p2": "cannot_return"}})
+    states = plc.pump(plant, 8.0)
+    w = plc.words()
+    ok = (w["state"] == FAULT and w["fault_code"] == 5 and not plc.qx()["MOTOR_RUN"]
+          and 6 in states and 7 in states)
+    return ok, (f"states {states}; fault {w['fault_code']} (5 = P2 return timeout); "
+                f"{w['count_reject']} rejected box(es) already counted, motor off")
+
+
+def tc24(ctx) -> tuple[bool, str]:
+    """SR-05: motor overload stops the sequence and needs a Reset; the Reset only
+    works once the cause is gone."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "did not reach RUNNING"
+    plant = Plant(boxes=[Box(id=1, size="small")], start_delay_s=0.5,
+                  faults={"overload_at_s": 1.5})
+    states = plc.pump(plant, 2.5)
+    w = plc.words()
+    trip = (w["state"], w["fault_code"], plc.qx()["MOTOR_RUN"])
+    plc.pulse("PB_RESET")                    # cause still present: must not clear
+    time.sleep(0.4)
+    still_latched = plc.state() == FAULT
+    plc.pump(plant, 0.3, overrides={"MOTOR_OL": True})   # overload clear now
+    plc.pulse("PB_RESET")
+    time.sleep(0.4)
+    cleared = plc.state()
+    ok = (trip[0] == FAULT and trip[1] == 6 and not trip[2] and still_latched and cleared == 0)
+    return ok, (f"states {states}; trip state {trip[0]} fault {trip[1]} motor {trip[2]}; "
+                f"Reset with the overload still open: state {FAULT} (blocked); "
+                f"Reset once it cleared -> state {cleared}")
+
+
+def tc25(ctx) -> tuple[bool, str]:
+    """SR-08: the web HMI cannot clear a safety latch. The only coils the HMI can
+    write are Start (80) and Stop (81); there is no reset coil to write."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "did not reach RUNNING"
+    plant = Plant(boxes=[], start_delay_s=0.0, faults={"overload_at_s": 0.6})
+    plc.pump(plant, 1.5)
+    latched = plc.state()
+    plc.coil(HMI_START_COIL, True)
+    plc.coil(HMI_STOP_COIL, True)
+    time.sleep(0.5)
+    held = (plc.state(), plc.words()["fault_code"])
+    plc.coil(HMI_START_COIL, False)
+    plc.coil(HMI_STOP_COIL, False)
+    time.sleep(0.2)
+    ok = latched == FAULT and held[0] == FAULT and held[1] == 6 and not plc.qx()["MOTOR_RUN"]
+    return ok, (f"latched in FAULT; HMI Start+Stop written: state {held[0]}, fault {held[1]} "
+                f"still standing, motor off. The HMI has no reset coil at all (SR-08), and a "
+                f"Reset via the %MX input path is a simulator artefact, not a field one")
+
+
+def tc26(ctx) -> tuple[bool, str]:
+    """SR-02: E-Stop while a pusher is extended. Both valves de-energize and the
+    springs bring the cylinders home; the line then recovers with Reset + Start.
+    """
+    plc, rt = ctx["plc"], ctx["rt"]
+    report, good = [], 0
+    for target, cyl in ((4, "p1"), (6, "p2")):
+        rt.cycle()
+        plc.wait_ready()
+        plant = _sit_in(plc, target)
+        if plant is None:
+            report.append(f"state {target} not reached")
+            continue
+        extended: list[bool] = []
+        plc.pump(plant, 0.05, watch=lambda qx, st: extended.append(qx["P1_VALVE"] or qx["P2_VALVE"]))
+        plant.force_estop()
+        plc.write_inputs(plant.inputs())     # the PLC sees the mushroom at once
+        time.sleep(0.1)
+        after: list[tuple] = []
+        plc.pump(plant, 0.4, watch=lambda qx, st: after.append((st, qx["P1_VALVE"], qx["P2_VALVE"])))
+        plc.pump(plant, 1.5)                     # springs bring both cylinders home
+        home = all((plant.p1.home, plant.p2.home))
+        plc.pump(plant, 0.2, overrides={"E_STOP_OK": True})
+        plc.pulse("PB_RESET")
+        time.sleep(0.4)
+        recovered = plc.start() and plc.state() == RUNNING
+        case_ok = (any(extended) and after and all(st == ESTOP for st, _, _ in after)
+                   and not any(p1 or p2 for _, p1, p2 in after) and home and recovered)
+        good += 1 if case_ok else 0
+        report.append(f"state {target}: valve was on={any(extended)}, valves off after the trip="
+                      f"{not any(p1 or p2 for _, p1, p2 in after)}, both cylinders home={home}, "
+                      f"Reset+Start recovers={recovered}")
+    ok = good == 2
+    return ok, "; ".join(report) if report else "no state reached"
+
+
 CASES = [("TC-01", tc01), ("TC-02", tc02), ("TC-03", tc03), ("TC-04", tc04),
          ("TC-05", tc05), ("TC-06", tc06), ("TC-07", tc07), ("TC-08", tc08),
          ("TC-09", tc09), ("TC-10", tc10), ("TC-11", tc11), ("TC-12", tc12),
-         ("TC-13", tc13), ("TC-14", tc14)]
+         ("TC-13", tc13), ("TC-14", tc14), ("TC-15", tc15), ("TC-16", tc16),
+         ("TC-17", tc17), ("TC-18", tc18), ("TC-19", tc19), ("TC-20", tc20),
+         ("TC-21", tc21), ("TC-22", tc22), ("TC-23", tc23), ("TC-24", tc24),
+         ("TC-25", tc25), ("TC-26", tc26)]
 
 
 def main() -> int:
@@ -379,7 +686,7 @@ def main() -> int:
     rt = Runtime()
     plc = Plc2("127.0.0.1", 502)
     plc.wait_ready()
-    rows, failed = [], 0
+    rows, failed, blocked = [], 0, 0
     try:
         for cid, fn in CASES:
             if wanted and cid not in wanted:
@@ -389,12 +696,17 @@ def main() -> int:
                 plc.wait_ready()
             ctx = {"plc": plc, "rt": rt}
             try:
-                ok, detail = fn(ctx)
+                result, detail = fn(ctx)
             except AssertionError as exc:
-                ok, detail = False, f"assertion: {exc}"
-            failed += 0 if ok else 1
-            rows.append((cid, "PASS" if ok else "FAIL", detail))
-            print(f"{cid}  {'PASS' if ok else 'FAIL'}  {detail}")
+                result, detail = False, f"assertion: {exc}"
+            if result is True:
+                verdict = "PASS"
+            elif result == "BLOCKED":
+                verdict, blocked = "BLOCKED", blocked + 1
+            else:
+                verdict, failed = "FAIL", failed + 1
+            rows.append((cid, verdict, detail))
+            print(f"{cid}  {verdict}  {detail}")
     finally:
         plc.close()
 
@@ -403,9 +715,10 @@ def main() -> int:
     section = ["", f"## Run {time.strftime('%Y-%m-%d %H:%M')} — sim/tests.py", "",
                "| Case | Result | Evidence |", "|------|--------|----------|"]
     section += [f"| {cid} | {res} | {det} |" for cid, res, det in rows]
-    section += ["", f"{sum(1 for r in rows if r[1] == 'PASS')}/{len(rows)} passed.", ""]
+    passed = sum(1 for r in rows if r[1] == "PASS")
+    section += ["", f"{passed}/{len(rows)} passed, {blocked} blocked (no hardware), {failed} failed.", ""]
     log.write_text(existing + "\n".join(section))
-    print(f"\n{sum(1 for r in rows if r[1] == 'PASS')}/{len(rows)} passed -> docs/TEST-LOG.md")
+    print(f"\n{passed}/{len(rows)} passed, {blocked} blocked, {failed} failed -> docs/TEST-LOG.md")
     return 1 if failed else 0
 
 

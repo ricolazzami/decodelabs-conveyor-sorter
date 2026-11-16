@@ -109,8 +109,17 @@ class Plant:
     p2: Cylinder = field(default_factory=Cylinder)
     t: float = 0.0
     spawn_idx: int = 0
+    forced_estop: bool = False      # tests trip the E-Stop on purpose, mid-state
     events: list[str] = field(default_factory=list)
     faults_fired: list[str] = field(default_factory=list)
+
+    def force_estop(self, on: bool = True) -> None:
+        """An operator pressing the mushroom: the plant reacts exactly like the
+        timeline faults do - belt stops, valve supply gone, cylinders return."""
+        self.forced_estop = on
+        if on and "e-stop pressed" not in self.faults_fired:
+            self.faults_fired.append("e-stop pressed")
+            self.events.append(f"t={self.t:6.2f} FAULT INJECTED: e-stop pressed")
 
     # --- fault injection ---------------------------------------------------
     def _fired(self, name: str, when) -> bool:
@@ -125,7 +134,8 @@ class Plant:
         return self.t >= float(when)
 
     def estop_active(self) -> bool:
-        return self._fired("e-stop pressed", self.faults.get("estop_at_s"))
+        return self.forced_estop or self._fired("e-stop pressed",
+                                                self.faults.get("estop_at_s"))
 
     def overload_active(self) -> bool:
         return self._fired("motor overload", self.faults.get("overload_at_s"))
@@ -150,17 +160,19 @@ class Plant:
         self.t += dt
         self.spawn_due()
 
-        if self.estop_active() or self.overload_active():
-            # the motor contactor is out: everything on the belt stops dead
-            return
+        # E-Stop and overload drop the motor contactor AND the valve supply
+        # (docs/SAFETY.md §2), so the belt stops while the springs bring both
+        # cylinders home.
+        live = not (self.estop_active() or self.overload_active())
 
-        for b in self.boxes:
-            if b.lane is None and b.id <= self.spawn_idx:
-                b.x += self.speed_mm_s * dt
+        if live:
+            for b in self.boxes:
+                if b.lane is None and b.id <= self.spawn_idx:
+                    b.x += self.speed_mm_s * dt
 
         jam = self.faults.get("cylinder_jam") or {}
-        for name, cyl, valve, station in (("p1", self.p1, qx["P1_VALVE"], STATION1_MM),
-                                          ("p2", self.p2, qx["P2_VALVE"], STATION2_MM)):
+        for name, cyl, valve, station in (("p1", self.p1, qx["P1_VALVE"] and live, STATION1_MM),
+                                          ("p2", self.p2, qx["P2_VALVE"] and live, STATION2_MM)):
             if valve != cyl.want_ext:
                 cyl.want_ext = valve
                 cyl.moving_since = self.t

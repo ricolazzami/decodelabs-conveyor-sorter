@@ -18,7 +18,7 @@ Addressing note: this build is a soft PLC with no fieldbus card, so the I/O imag
 
 Why two stations: pusher 1 and pusher 2 would collide if they shared one zone. Station 1 handles LARGE, station 2 (downstream) handles REJECT. A SMALL box triggers neither.
 
-Single-box assumption: only one box is between the two stations at a time. The class is held in `box_class` memory between S1 and S2.
+Single-box assumption: only one box is between the two stations at a time. A box at station 1 stays in the `q_class` FIFO (arrival order) until station 2 serves it, so its size can be looked up when it arrives downstream.
 
 ## 2. Digital inputs (14 used, 16-point card recommended)
 
@@ -62,23 +62,28 @@ classification (every scan, outside the CASE):
   S1_BOX ↑        latch size_sample := S1_SIZE, start T_settle
   200 ms later    both samples equal?  tall  → p1_queued++      (LARGE)
                                         short → FIFO ← SMALL
-                       samples differ, or the box left early → FIFO ← REJECT
+                  samples differ → FIFO ← REJECT
+  S1_BOX ↓ before it settled        → FIFO ← REJECT
 
 state machine:
-IDLE ──(START ∧ E_STOP_OK ∧ MOTOR_OL ∧ P1_HOME ∧ P2_HOME ∧ ¬reset_required)──► READY
+IDLE ──(START ∧ E_STOP_OK ∧ MOTOR_OL ∧ P1_HOME ∧ P2_HOME ∧ ¬reset_required ∧ MODE_AUTO)──► READY
 READY ──(clear the tracking, never the counters)──► RUNNING     MOTOR_RUN = 1
-RUNNING ──(box latched at station 2)──► pop FIFO
-                                   SMALL  ──► RUNNING, CNT_SMALL++
+RUNNING ──(STOP ∨ ¬safety)──► STOPPING
+        ──(p1_queued > 0 ∧ P1_HOME ∧ S1_BOX)──► P1_DIVERT   ← the box it was measured
+        ──(s2_pending ∧ S2_BOX)──► pop FIFO                  for is still in the zone
+                                   SMALL ──► RUNNING, CNT_SMALL++
                                    REJECT / empty FIFO ──► P2_DIVERT
-         ──(p1_queued > 0 ∧ P1_HOME)──► P1_DIVERT
+        ──(p1_queued > 0 ∧ P1_HOME ∧ ¬S1_BOX)──► FAULT 8    ← record, but no box to push
+        ──(s2_pending ∧ ¬S2_BOX)──► FAULT 8                  ← left station 2 unserved
 P1_DIVERT  : P1_VALVE = 1 ; T_extend → FAULT 2
 P1_RETURN  : P1_VALVE = 0 ; exit on P1_HOME ; T_return → FAULT 3 ; CNT_LARGE++
 P2_DIVERT  : P2_VALVE = 1 ; T_extend → FAULT 4
 P2_RETURN  : P2_VALVE = 0 ; exit on P2_HOME ; T_return → FAULT 5 ; CNT_REJECT++
              and the amber lamp pulses for T_reject_lamp
 any state ──(STOP)──► STOPPING : outputs off ──► IDLE
-any state ──(¬E_STOP_OK)──► ESTOP ; ──(¬MOTOR_OL)──► FAULT 6
+any state ──(¬E_STOP_OK)──► ESTOP 1 ; ──(¬MOTOR_OL)──► FAULT 6
 box at both stations for 3 s ──► FAULT 7
+FAULT / ESTOP ──(clear the tracking, keep the counters, reset the guard timers)
 ```
 
 Two layers, on purpose:
@@ -86,15 +91,16 @@ Two layers, on purpose:
 1. **Classification** runs on every scan, outside the state machine. A box at station 1 is read at the rising edge and again 200 ms later; the two readings decide `SMALL`, `LARGE` or `REJECT`. It cannot be deferred to the sequencer, because the box is only under the sensor for about one second - a busy actuator sequence would otherwise sample air and turn a good box into "unclassified".
 2. **The actuator sequence** is the state machine. `LARGE` boxes are counted in `p1_queued` and diverted at station 1, so they never reach station 2 and are deliberately kept out of the station-2 FIFO. Everything else (SMALL, REJECT) goes into that FIFO in arrival order and is decided at station 2: SMALL straight through, REJECT through pusher 2.
 
-`RUNNING` handles station 2 first, because that box is further down the belt and its record was taken at station 1. An arrival at station 2 is latched, so an event is never lost while the other station is being served.
+`RUNNING` serves **station 1 first**, because that box is only inside the pusher zone for about a second, while an arrival at station 2 is latched (`s2_pending`) and can wait without being lost.
 
+**SR-06 - a pusher only strokes while its box is in the zone.** A pending station-1 box is diverted only when `S1_BOX` is still true. If the record exists but the box has gone (lifted off by hand, or it outran the sequence) the PLC raises **fault 8** rather than stroking into air or letting the box slip down the SMALL lane silently. The same rule covers a station-2 box that leaves the zone before it is served.
 ## 5. State table
 
 | # | State | MOTOR | P1 | P2 | Exit | Fault traps |
 |---|-------|-------|----|----|------|-------------|
 | 0 | `IDLE` | 0 | 0 | 0 | START + all healthy | — |
 | 1 | `READY` | 0 | 0 | 0 | run seal set | — |
-| 2 | `RUNNING` | 1 | 0 | 0 | S2 box↑ (latched), `p1_queued` > 0, STOP, fault | — |
+| 2 | `RUNNING` | 1 | 0 | 0 | p1 zone occupied, S2 box↑ (latched) & occupied, STOP, fault, SR-06 fault 8 | — |
 | 3 | *(reserved)* | 1 | 0 | 0 | unused — classification runs every scan, outside the CASE | — |
 | 4 | `P1_DIVERT` | 1 | 1 | 0 | P1_EXT | T_extend |
 | 5 | `P1_RETURN` | 1 | 0 | 0 | P1_HOME (or nothing to return) | T_return |
@@ -115,7 +121,7 @@ Rule: **`P1_VALVE` may be 1 only in `P1_DIVERT`; `P2_VALVE` only in `P2_DIVERT`.
 | G1 Safety & enable | E_STOP_OK normalisation, MOTOR_OL, run seal, `reset_required` latch |
 | G2 State machine | one `CASE` branch per state, transition guards, the station-2 FIFO and `p1_queued` |
 | G3 Outputs | state → MOTOR_RUN / P1_VALVE / P2_VALVE / lamps (one coil per rung) |
-| G4 Timers & faults | T_classify, T_extend(×2), T_return(×2), T_reject_lamp, fault latch + cause word |
+| G4 Timers & faults | T_settle, T_extend(×2), T_return(×2), T_reject_lamp, fault latch + cause word |
 | G5 Counters | CNT_SMALL, CNT_LARGE, CNT_REJECT in `%QW1..%QW3` |
 
 Rules applied everywhere:
@@ -146,7 +152,7 @@ colour sensor, and the rest of the program is unchanged.
 
 | Name | Value | Reason |
 |------|-------|--------|
-| `T_classify` | 200 ms | sensor settle |
+| `T_settle` | 200 ms | second sample, sensor settle |
 | `T_extend` | 800 ms | cylinder stroke guard |
 | `T_return` | 1000 ms | spring-return guard |
 | `T_reject_lamp` | 1000 ms | amber pulse |
@@ -183,12 +189,30 @@ OpenPLC Runtime v4 exposes the `modbus_slave` plugin (TCP, port 502). FUXA conne
 | Counters | holding registers 1–3 | `CNT_SMALL`, `CNT_LARGE`, `CNT_REJECT` (`%QW1..%QW3`) |
 | Fault cause word | holding register 4 | `FAULT_CODE` (`%QW4`) |
 
+### 9.1 Fault codes (`FAULT_CODE`, holding register 4)
+
+| Code | Meaning | Set by |
+|------|---------|--------|
+| 0 | No fault | Reset with the cause cleared |
+| 1 | E-Stop pressed | `E_STOP_OK` = 0 (supervisory block) |
+| 2 | Pusher 1 did not extend in time | `T_extend` in `P1_DIVERT` |
+| 3 | Pusher 1 did not return in time | `T_return` in `P1_RETURN` |
+| 4 | Pusher 2 did not extend in time | `T_extend` in `P2_DIVERT` |
+| 5 | Pusher 2 did not return in time | `T_return` in `P2_RETURN` |
+| 6 | Motor overload / drive fault | `MOTOR_OL` = 0 (supervisory block) |
+| 7 | Both stations occupied for over 3 s | `t_s2_stuck` |
+| 8 | No box in the pusher's zone for a record that exists (SR-06) | `RUNNING` |
+
+A fault latches the sequence into `FAULT` (9) or `ESTOP` (10). The operator must
+clear the cause and press the physical Reset, then Start — the HMI has no reset
+path (SR-08). `docs/SAFETY.md` §4 lists the same codes with the safety rationale.
+
 Keep a physical button path too — FUXA is an indicator/extra control, not the only way to stop the line. A web HMI is not a safety device.
 
-## 10. Diagrams to produce
+## 10. Diagrams
 
-- `docs/img/layout.png` — 3 lanes, 2 stations
-- `docs/img/state-machine.png` — from §4
-- `docs/img/wiring.png` — power, contactor, E-Stop, 24 V, PLC I/O
-- `docs/img/ladder-g1..g5.png` — printouts with rung comments
-- `docs/img/fuxa.png` — HMI screen
+- `docs/img/wiring.png` — power, contactor, E-Stop, valve supply, PLC I/O — **done** (P4)
+- `docs/img/layout.png` — 3 lanes, 2 stations — to produce (docs)
+- `docs/img/state-machine.png` — from §4 — to produce (docs)
+- `docs/img/fuxa.png` — HMI screen — P5
+- Printouts of the program with comments — P7 (the program is Structured Text, not ladder)

@@ -179,6 +179,22 @@ ELSIF NOT MOTOR_OL THEN
   FAULT_CODE := 6;
 END_IF;
 
+IF state = 9 OR state = 10 THEN
+  (* the sequence has been taken away for a safety reason, so the boxes that
+     were in flight are unknown: forget the tracking. The counters are NOT
+     cleared - they are production data. The guards are reset too, otherwise a
+     stale TON would still be holding its elapsed time when the line restarts. *)
+  q_head := 0;
+  q_tail := 0;
+  p1_queued := 0;
+  s1_pending := FALSE;
+  s2_pending := FALSE;
+  t_p1_ext(IN := FALSE, PT := T#800ms);
+  t_p1_ret(IN := FALSE, PT := T#1000ms);
+  t_p2_ext(IN := FALSE, PT := T#800ms);
+  t_p2_ret(IN := FALSE, PT := T#1000ms);
+END_IF;
+
 (* ============================================================
    4. Actuator sequence
    ============================================================ *)
@@ -200,9 +216,13 @@ CASE state OF
   2: (* RUNNING *)
     IF stop_rise OR NOT safety_ok THEN
       state := 8;
-    ELSIF s2_pending THEN
-      (* station 2 first: that box is further down the belt than any box still
-         waiting for pusher 1, and its record was taken at station 1 *)
+    ELSIF p1_queued > 0 AND P1_HOME AND S1_BOX THEN
+      (* SR-06: only stroke while the box that was measured is still in the
+         pusher's zone *)
+      p1_did_ext := FALSE;
+      state := 4;                    (* P1_DIVERT, at station 1 *)
+    ELSIF s2_pending AND S2_BOX THEN
+      (* station 2: take the record that was made for this box *)
       s2_pending := FALSE;
       IF q_head < q_tail THEN
         drop_class := q_class[q_head MOD 8];
@@ -217,8 +237,16 @@ CASE state OF
         state := 6;                  (* P2_DIVERT: reject lane *)
       END_IF;
     ELSIF p1_queued > 0 AND P1_HOME THEN
-      p1_did_ext := FALSE;
-      state := 4;                    (* P1_DIVERT, at station 1 *)
+      (* SR-06: the box is gone (removed by hand, or it outran the sequence).
+         Nothing is stroked into air, and the product state is unknown, so this
+         is a fault for the operator - never a silent pass down the SMALL lane. *)
+      FAULT_CODE := 8;
+      state := 9;
+    ELSIF s2_pending THEN
+      (* the box left station 2 before it could be served: same reaction *)
+      s2_pending := FALSE;
+      FAULT_CODE := 8;
+      state := 9;
     END_IF;
 
   3: (* reserved: classification is the always-scanned block above *)

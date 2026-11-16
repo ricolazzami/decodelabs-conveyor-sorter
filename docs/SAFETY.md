@@ -42,36 +42,44 @@ The PLC reads `E_STOP_OK` (NC, 1 = healthy) and does the bookkeeping:
 
 ## 4. Layer 3 — fault interlocks
 
-| Fault | Detection | Reaction |
-|-------|-----------|----------|
-| Motor overload / drive fault | `MOTOR_OL` = 0 | Stop sequence, `FAULT`, motor off, Reset required |
-| Pusher 1 not extended | `P1_EXT` still 0 after `T_extend` | `P1_VALVE` off, `FAULT` |
-| Pusher 1 not home | `P1_HOME` still 0 after `T_return` | `FAULT`, motor off (possible jam) |
-| Pusher 2 not extended | `P2_EXT` still 0 after `T_extend` | `P2_VALVE` off, `FAULT` |
-| Pusher 2 not home | `P2_HOME` still 0 after `T_return` | `FAULT`, motor off |
-| Box stuck at station 2 | `S2_CLEAR` never seen within `T_clear` | `FAULT` |
-| Unclassified box | `S1_SIZE` missing or contradictory at classify time | Route to REJECT + amber lamp (FR-08), count it |
-| Pusher commanded with no box | `S1_BOX`/`S2_BOX` false while valve on | Valve off, `FAULT` (SR-06) |
+| Code | Fault | Detection | Reaction |
+|------|-------|-----------|----------|
+| 1 | E-Stop pressed | `E_STOP_OK` = 0 | `ESTOP`, motor and both valves off (motor already dropped in hardware), `reset_required` |
+| 6 | Motor overload / drive fault | `MOTOR_OL` = 0 | `FAULT`, motor off, both valves off, Reset required |
+| 2 | Pusher 1 not extended | `P1_EXT` still 0 after `T_extend` | `P1_VALVE` off, `FAULT` |
+| 3 | Pusher 1 not home | `P1_HOME` still 0 after `T_return` | `FAULT`, motor off (possible jam) |
+| 4 | Pusher 2 not extended | `P2_EXT` still 0 after `T_extend` | `P2_VALVE` off, `FAULT` |
+| 5 | Pusher 2 not home | `P2_HOME` still 0 after `T_return` | `FAULT`, motor off |
+| 7 | Box stuck between stations | `S1_BOX` **and** `S2_BOX` both true for 3 s | `FAULT`, motor off |
+| 8 | Pusher record with no box | `p1_queued` > 0 but `S1_BOX` false (or `s2_pending` but `S2_BOX` false) | Valve never energizes, `FAULT` (SR-06) |
+| — | Unclassified box | `S1_SIZE` missing or contradictory at classify time | Route to REJECT + amber lamp (FR-08), count it — **not** a fault |
 
 Unclassified boxes are **not** a fault: the reject lane exists for them. They are counted and indicated, never hidden.
+
+Fault 8 is the SR-06 guard. Because the program only ever strokes a pusher while the
+box it was measured for is still in the zone, a record that outlives its box (the box
+was lifted off by hand, or it outran the sequence) is caught: nothing is stroked into
+air, and the box is not allowed to slip down the SMALL lane as if it had been checked.
+Faults latch the sequence into `FAULT`; only a physical Reset with the cause cleared,
+then a separate Start, brings it back (the HMI has no reset path — SR-08).
 
 ## 5. State-to-output safety matrix
 
 | State | `MOTOR_RUN` | `P1_VALVE` | `P2_VALVE` | Safe? |
 |-------|-------------|------------|------------|-------|
-| IDLE | 0 | 0 | 0 | yes |
-| READY | 0 | 0 | 0 | yes |
-| RUNNING | 1 | 0 | 0 | yes |
-| S1_CLASSIFY | 1 | 0 | 0 | yes |
-| P1_DIVERT | 1 | 1 | 0 | allowed — box at station 1 only |
-| P1_RETURN | 1 | 0 | 0 | yes |
-| P2_DIVERT | 1 | 0 | 1 | allowed — box at station 2 only |
-| P2_RETURN | 1 | 0 | 0 | yes |
-| STOPPING | 0 | 0 | 0 | yes |
-| FAULT | 0 | 0 | 0 | yes |
-| ESTOP | 0 (hardware) | 0 | 0 | yes |
+| 0 IDLE | 0 | 0 | 0 | yes |
+| 1 READY | 0 | 0 | 0 | yes |
+| 2 RUNNING | 1 | 0 | 0 | yes |
+| 3 *(reserved)* | 1 | 0 | 0 | yes — classification runs every scan, outside the CASE |
+| 4 P1_DIVERT | 1 | 1 | 0 | allowed — box at station 1 only |
+| 5 P1_RETURN | 1 | 0 | 0 | yes |
+| 6 P2_DIVERT | 1 | 0 | 1 | allowed — box at station 2 only |
+| 7 P2_RETURN | 1 | 0 | 0 | yes |
+| 8 STOPPING | 0 | 0 | 0 | yes |
+| 9 FAULT | 0 | 0 | 0 | yes |
+| 10 ESTOP | 0 (hardware) | 0 | 0 | yes |
 
-Rule: valve 1 only in `P1_DIVERT`, valve 2 only in `P2_DIVERT`. Two valves on at once is a defect.
+Rule: valve 1 only in `P1_DIVERT`, valve 2 only in `P2_DIVERT`. Two valves on at once is a defect. The program enforces this twice — the state mapping and a hard guard that also forces all three outputs off whenever `safety_ok` is false.
 
 ## 6. Mechanical and operational guards (state them, do not fake them)
 
