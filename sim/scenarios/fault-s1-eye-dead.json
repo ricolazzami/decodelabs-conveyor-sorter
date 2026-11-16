@@ -1,0 +1,11 @@
+{
+  "name": "fault-s1-eye-dead",
+  "note": "TC-23: the station 1 presence eye dies. No box is classified, so no box may be guessed as SMALL - every unseen box must end in the reject lane. Single stream only: with two boxes hidden behind each other the counts could still drift (documented limitation).",
+  "boxes": [
+    { "id": 1, "size": "small", "expect_lane": "reject" },
+    { "id": 2, "size": "small", "expect_lane": "reject" },
+    { "id": 3, "size": "small", "expect_lane": "reject" }
+  ],
+  "faults": { "s1_eye_dead_at_s": 1.5 },
+  "plant": { "start_delay_s": 1.0 }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "fault-estop",
+  "note": "TC-15: E-Stop pressed mid-run. Hardwired contactor removes motor power; the program must latch ESTOP and force both valves off.",
+  "boxes": [
+    { "id": 1, "size": "small" },
+    { "id": 2, "size": "large" },
+    { "id": 3, "size": "small" }
+  ],
+  "faults": { "estop_at_s": 6.0 },
+  "expect": { "state": 10, "fault_code": 1, "actuators_off": true },
+  "plant": { "start_delay_s": 1.0 }
+}

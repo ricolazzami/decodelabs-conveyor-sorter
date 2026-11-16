@@ -20,24 +20,36 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 - [x] Language: plain English for all docs and report
 - [x] Q14 submission: PDF report + source zip + video link.
 
-## P1 — Environment setup
+## P1 — Environment setup — DONE
 
-- [ ] Install OpenPLC Editor v4 (Linux x64 release) and Runtime v4
-  - Docker path: `docker run -d --name openplc-runtime -p 8443:8443 ghcr.io/autonomy-logic/openplc-runtime:latest`
-  - Native path: `sudo ./install.sh --native` (installer handles pacman)
-- [ ] Connect Editor to runtime (port 8443, TLS self-signed)
-- [ ] Install FUXA (Docker: `frangoteam/fuxa`) and confirm browser access
-- [ ] Install `pymodbus` for the plant simulator: `pip install pymodbus`
-- [ ] Smoke test: write one coil from the simulator, read one input
+- [x] Install OpenPLC Editor v4 and Runtime v4
+  - Runtime v4 runs from `docker-compose.yml` (container `openplc-runtime`, ports
+    8443 TLS + 502 Modbus). `docker run` alone is not enough: the plugin config
+    and the Modbus slave config are bind-mounted so they survive recreation
+  - Editor 4.3.5 AppImage at `~/Applications/OpenPLC-Editor-4.3.5.AppImage`, used
+    headlessly: `APPDIR="$PWD" ./AppRun --cli ...` (no display on this machine)
+- [x] Connect Editor to runtime: `--cli upload <project> --host 127.0.0.1 --target "OpenPLC Runtime v4"`, credentials via `OPENPLC_USER` / `OPENPLC_PASSWORD`
+- [x] Install FUXA (`frangoteam/fuxa`) and confirm access: `http://localhost:1881` answers 200
+- [x] Install `pymodbus` for the plant simulator (in `.venv`)
+- [x] Smoke test: write a coil and read the words back over Modbus
 
-## P2 — Plant simulator (do this before the ladder, it is the test harness)
+## P2 — Plant simulator — DONE (`sim/`, see `sim/README.md`)
 
-- [ ] `sim/plant.py` — Modbus TCP client: reads coils (outputs), writes discrete inputs (sensors)
-- [ ] Model: belt motion, box queue with pitch 400 mm, belt 0.3 m/s
-- [ ] Model both stations, both cylinders (extend/return delays), both home/end sensors
-- [ ] Scenario file for the 10-box acceptance run (4 small, 3 large, 3 forced reject)
-- [ ] Log each box: id, class, lane, timestamp → `sim/run.log`
-- [ ] Fault injection flags: sensor timeout, cylinder jam, overload
+- [x] `sim/plant.py` — Modbus TCP client: reads the actuator coils, writes the sensor bits
+  - Note: on this target no producer exists for `%IX`, so the digital inputs are written
+    as `%MX` memory bits (coils 64–77). Tags and logic unchanged; on real hardware with an
+    input card they land on `%IX`
+- [x] Model: belt motion, box queue with pitch 400 mm, belt 0.3 m/s
+- [x] Model both stations, both cylinders (extend/return delays), both home/end sensors
+- [x] Scenario files: `acceptance-10.json` (4 small, 3 large, 3 untrustworthy) plus five
+  fault scenarios (E-Stop, overload, P1 jam, P2 jam, dead station 1 eye)
+- [x] Log each box — id, truth, expectation, lane, entry and done time — to `sim/logs/<name>.log`
+- [x] Fault injection flags: `estop_at_s`, `overload_at_s`, `s1_eye_dead_at_s`,
+  `cylinder_jam` with `cannot_extend` / `cannot_return`
+- [x] `sim/run-scenarios.sh` runs every scenario from a clean PLC state and prints one line each
+- [ ] `acceptance-10` still **fails** on the box-by-box verdict (counters are right, lanes are
+  not). That is the program's classification path, not the harness — see P3
+
 
 ## P3 — Program skeleton (M2)
 

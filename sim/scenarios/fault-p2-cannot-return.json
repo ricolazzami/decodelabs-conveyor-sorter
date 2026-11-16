@@ -1,0 +1,14 @@
+{
+  "name": "fault-p2-cannot-return",
+  "note": "TC-21: pusher 2 extends correctly but jams out. The station 1 eye is dead, so the box arrives at station 2 with no record and must be rejected there; the cylinder then never returns home -> return timeout, FAULT.",
+  "boxes": [
+    { "id": 1, "size": "small" },
+    { "id": 2, "size": "small" }
+  ],
+  "faults": {
+    "s1_eye_dead_at_s": 1.5,
+    "cylinder_jam": { "p2": "cannot_return" }
+  },
+  "expect": { "state": 9, "fault_code": 5 },
+  "plant": { "start_delay_s": 1.0 }
+}

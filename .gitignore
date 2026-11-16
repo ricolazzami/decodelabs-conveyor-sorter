@@ -19,3 +19,4 @@ squashfs-root/
 # editor / OS noise
 .DS_Store
 Thumbs.db
+sim/logs/

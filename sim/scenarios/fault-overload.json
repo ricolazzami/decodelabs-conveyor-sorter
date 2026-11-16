@@ -1,0 +1,12 @@
+{
+  "name": "fault-overload",
+  "note": "TC-22: motor overload contact opens during the run. Must latch FAULT, stop the belt and retract both valves.",
+  "boxes": [
+    { "id": 1, "size": "small" },
+    { "id": 2, "size": "large" },
+    { "id": 3, "size": "small" }
+  ],
+  "faults": { "overload_at_s": 6.0 },
+  "expect": { "state": 9, "fault_code": 6, "actuators_off": true },
+  "plant": { "start_delay_s": 1.0 }
+}

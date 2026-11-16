@@ -1,19 +1,18 @@
 {
   "name": "acceptance-10",
-  "note": "4 small, 3 large, 3 sensor-miss boxes (must end in reject). TC-13.",
+  "note": "TC-13: 4 small, 3 large, 3 boxes whose height reading is not trustworthy (must be rejected).",
   "boxes": [
     { "id": 1, "size": "small" },
     { "id": 2, "size": "large" },
     { "id": 3, "size": "small" },
     { "id": 4, "size": "large" },
-    { "id": 5, "size": "small", "miss": true },
+    { "id": 5, "size": "small", "uncertain": true },
     { "id": 6, "size": "small" },
     { "id": 7, "size": "large" },
-    { "id": 8, "size": "large", "miss": true },
+    { "id": 8, "size": "large", "uncertain": true },
     { "id": 9, "size": "small" },
-    { "id": 10, "size": "small", "miss": true }
+    { "id": 10, "size": "small", "uncertain": true }
   ],
-  "plant": {
-    "start_delay_s": 1.0
-  }
+  "expect_counts": { "count_small": 4, "count_large": 3, "count_reject": 3 },
+  "plant": { "start_delay_s": 1.0 }
 }

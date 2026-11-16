@@ -1,16 +1,28 @@
 """Plant simulator for the DecodeLabs Project 4 conveyor sorter.
 
 The PLC is the Modbus TCP server (OpenPLC Runtime v4, port 502). This script is
-the plant: it writes the sensor/button coils (%MX region) and reads the actuator
-coils (%QX) plus the HMI words (%QW holding registers).
+the plant: it writes the sensor/button bits and reads the actuator bits plus the
+HMI words.
 
-Address map (see docs/ARCHITECTURE.md):
-  coils   0..5   %QX0.0..   MOTOR_RUN, P1_VALVE, P2_VALVE, LAMP_RUN, LAMP_FAULT, LAMP_REJ
-  coils  64..77  %MX0.0..   digital inputs, in the order of MX_BITS below
-  HR      0..4   %QW0..     state, count_small, count_large, count_reject, fault_code
+Why the sensors are written as coils and not as %IX
+---------------------------------------------------
+This build is a soft PLC: the I/O image is delivered over Modbus by the
+project's own Modbus server, and no producer exists for %IX on this target. The
+editor therefore sizes the *memory* bit area, and the plant writes into it:
+
+  coils   0..5            %QX0.0..   MOTOR_RUN, P1_VALVE, P2_VALVE,
+                                     LAMP_RUN, LAMP_FAULT, LAMP_REJ
+  coils  64..77           %MX0.0..   digital inputs, see MX_BITS below
+  coils  80..81           %MX2.0..   HMI_START, HMI_STOP
+  holding registers 0..4  %QW0..     state, count_small, count_large,
+                                     count_reject, fault_code
+
+On real hardware with an input card the same tags land on %IX and nothing else
+changes. See docs/ARCHITECTURE.md.
 
 Run:
     python sim/plant.py --scenario sim/scenarios/acceptance-10.json
+    python sim/plant.py --scenario sim/scenarios/faults-safety.json
 """
 
 from __future__ import annotations
@@ -26,6 +38,8 @@ from pymodbus.client import ModbusTcpClient
 # --- address map -----------------------------------------------------------
 MX_BASE = 64
 QX_BASE = 0
+QX_NAMES = ["MOTOR_RUN", "P1_VALVE", "P2_VALVE", "LAMP_RUN", "LAMP_FAULT", "LAMP_REJ"]
+QW_NAMES = ["state", "count_small", "count_large", "count_reject", "fault_code"]
 
 MX_BITS = {
     "E_STOP_OK": 0,
@@ -44,27 +58,36 @@ MX_BITS = {
     "S2_CLEAR": 13,
 }
 
-# --- plant geometry --------------------------------------------------------
-STATION1_MM = 600.0
-STATION2_MM = 1200.0
+# --- plant geometry (assumption, see docs/DECISIONS.md Q12/Q13) -------------
+STATION1_MM = 600.0        # pusher 1, where the size is measured
+STATION2_MM = 1200.0       # pusher 2, the reject lane
 BOX_LEN_MM = 200.0
-SENSOR_WINDOW_MM = 150.0  # a box counts as "at the station" inside this window
+SENSOR_WINDOW_MM = 150.0   # a box counts as "at the station" inside this window
 CYL_TRAVEL_S = 0.25
 TICK_S = 0.05
+LARGE_MM = 100.0           # threshold, sensor at 60 mm
 
 
 @dataclass
 class Box:
     id: int
-    size: str  # "small" | "large"
-    miss: bool = False  # sensor miss at station 1 -> must end up in reject
+    size: str                  # "small" | "large"  (the physical truth)
+    uncertain: bool = False    # height reading is not trustworthy -> must reject
+    expect_lane: str | None = None   # scenario-declared safe outcome, if any
     x: float = -BOX_LEN_MM
     lane: str | None = None
-    t_done: float | None = None
+    entry_t: float | None = None
+    done_t: float | None = None
 
     @property
     def tall(self) -> bool:
         return self.size == "large"
+
+    @property
+    def expected(self) -> str:
+        if self.expect_lane:
+            return self.expect_lane
+        return "reject" if self.uncertain else self.size
 
 
 @dataclass
@@ -81,18 +104,45 @@ class Plant:
     speed_mm_s: float = 300.0
     pitch_mm: float = 400.0
     start_delay_s: float = 1.0
+    faults: dict = field(default_factory=dict)
     p1: Cylinder = field(default_factory=Cylinder)
     p2: Cylinder = field(default_factory=Cylinder)
     t: float = 0.0
     spawn_idx: int = 0
     events: list[str] = field(default_factory=list)
+    faults_fired: list[str] = field(default_factory=list)
 
+    # --- fault injection ---------------------------------------------------
+    def _fired(self, name: str, when) -> bool:
+        """A fault flag is either a start time (seconds) or a plain bool."""
+        if when is None or when is False:
+            return False
+        if when is True:
+            return True
+        if self.t >= float(when) and name not in self.faults_fired:
+            self.faults_fired.append(name)
+            self.events.append(f"t={self.t:6.2f} FAULT INJECTED: {name}")
+        return self.t >= float(when)
+
+    def estop_active(self) -> bool:
+        return self._fired("e-stop pressed", self.faults.get("estop_at_s"))
+
+    def overload_active(self) -> bool:
+        return self._fired("motor overload", self.faults.get("overload_at_s"))
+
+    def s1_eye_dead(self) -> bool:
+        return self._fired("station 1 photo-eye dead",
+                           self.faults.get("s1_eye_dead_at_s"))
+
+    # --- motion ------------------------------------------------------------
     def spawn_due(self) -> None:
         while self.spawn_idx < len(self.boxes):
             due = self.start_delay_s + self.spawn_idx * self.pitch_mm / self.speed_mm_s
             if self.t >= due:
-                self.events.append(f"t={self.t:6.2f} box {self.boxes[self.spawn_idx].id} entered the belt")
+                b = self.boxes[self.spawn_idx]
+                b.entry_t = self.t
                 self.spawn_idx += 1
+                self.events.append(f"t={self.t:6.2f} box {b.id} entered the belt")
             else:
                 break
 
@@ -100,35 +150,46 @@ class Plant:
         self.t += dt
         self.spawn_due()
 
+        if self.estop_active() or self.overload_active():
+            # the motor contactor is out: everything on the belt stops dead
+            return
+
         for b in self.boxes:
             if b.lane is None and b.id <= self.spawn_idx:
                 b.x += self.speed_mm_s * dt
 
-        for cyl, valve, station in ((self.p1, qx["P1_VALVE"], STATION1_MM),
-                                    (self.p2, qx["P2_VALVE"], STATION2_MM)):
+        jam = self.faults.get("cylinder_jam") or {}
+        for name, cyl, valve, station in (("p1", self.p1, qx["P1_VALVE"], STATION1_MM),
+                                          ("p2", self.p2, qx["P2_VALVE"], STATION2_MM)):
             if valve != cyl.want_ext:
                 cyl.want_ext = valve
                 cyl.moving_since = self.t
-            if cyl.moving_since is not None and self.t - cyl.moving_since >= CYL_TRAVEL_S:
-                cyl.home, cyl.ext = not cyl.want_ext, cyl.want_ext
-                cyl.moving_since = None
-        # a box in the station window gets pushed when the cylinder is out
+            if cyl.moving_since is None or self.t - cyl.moving_since < CYL_TRAVEL_S:
+                continue
+            cyl.moving_since = None
+            if jam.get(name) == "cannot_extend" and cyl.want_ext:
+                self.events.append(f"t={self.t:6.2f} JAM: {name} will not extend")
+                continue                     # stuck retracted -> extend timeout
+            if jam.get(name) == "cannot_return" and not cyl.want_ext:
+                self.events.append(f"t={self.t:6.2f} JAM: {name} will not return")
+                continue                     # stuck extended -> return timeout
+            cyl.home, cyl.ext = not cyl.want_ext, cyl.want_ext
+
         for b in self.boxes:
             if b.lane is not None or b.id > self.spawn_idx:
                 continue
             if self.p1.ext and abs(b.x - STATION1_MM) < SENSOR_WINDOW_MM:
-                b.lane = "large"
-                b.t_done = self.t
+                b.lane, b.done_t = "large", self.t
                 self.events.append(f"t={self.t:6.2f} box {b.id} diverted LARGE by pusher 1")
             elif self.p2.ext and abs(b.x - STATION2_MM) < SENSOR_WINDOW_MM:
-                b.lane = "reject"
-                b.t_done = self.t
+                b.lane, b.done_t = "reject", self.t
                 self.events.append(f"t={self.t:6.2f} box {b.id} diverted REJECT by pusher 2")
             elif b.x > STATION2_MM + 3 * SENSOR_WINDOW_MM:
-                b.lane = "small"          # left straight, no actuator fired
-                b.t_done = self.t
+                # left straight, no actuator fired: the small lane
+                b.lane, b.done_t = "small", self.t
                 self.events.append(f"t={self.t:6.2f} box {b.id} left straight (small lane)")
 
+    # --- sensor image ------------------------------------------------------
     def inputs(self) -> dict[str, bool]:
         def at(station: float, tol: float = SENSOR_WINDOW_MM) -> list[Box]:
             return [b for b in self.boxes if b.lane is None and b.id <= self.spawn_idx
@@ -136,44 +197,52 @@ class Plant:
 
         s1, s2 = at(STATION1_MM), at(STATION2_MM)
 
-        # Presence sensor works; a sensor "miss" is an uncertain height reading:
-        # the photo-eye asserts for part of the window then drops, so a sample at
-        # the edge and a sample 200 ms later disagree. The PLC must reject that.
+        # Presence eye works unless faulted; an "uncertain" box is one whose
+        # height eye asserts at the edge of the window and has dropped by the
+        # time the second sample is taken. The controller must reject that.
         size = False
-        if s1:
+        if s1 and not self.s1_eye_dead():
             b = s1[0]
-            if b.miss:
-                size = b.x < STATION1_MM - SENSOR_WINDOW_MM + 20.0
-            else:
-                size = b.tall
+            size = (b.x < STATION1_MM - SENSOR_WINDOW_MM + 20.0) if b.uncertain else b.tall
 
         return {
-            "E_STOP_OK": True,
+            "E_STOP_OK": not self.estop_active(),
             "PB_START": False,
-            "PB_STOP": True,     # NC
+            "PB_STOP": True,          # NC
             "PB_RESET": False,
-            "S1_BOX": bool(s1),
+            "S1_BOX": bool(s1) and not self.s1_eye_dead(),
             "S1_SIZE": size,
             "S2_BOX": bool(s2),
             "P1_HOME": self.p1.home,
             "P1_EXT": self.p1.ext,
             "P2_HOME": self.p2.home,
             "P2_EXT": self.p2.ext,
-            "MOTOR_OL": True,    # NC
+            "MOTOR_OL": not self.overload_active(),   # NC
             "MODE_AUTO": True,
             "S2_CLEAR": bool(s2) and s2[0].x > STATION2_MM,
         }
 
     def done(self) -> bool:
+        if self.estop_active() or self.overload_active():
+            return False              # those runs end on the fault, not on lanes
         return self.spawn_idx >= len(self.boxes) and all(b.lane is not None for b in self.boxes)
 
-    def verdict(self) -> list[str]:
-        expected = {"small": "small", "large": "large"}
+    # --- reporting ---------------------------------------------------------
+    def box_lines(self) -> list[str]:
+        out = ["", "box  truth   expect   lane     entry    done"]
+        for b in self.boxes:
+            out.append(f"{b.id:3d}  {b.size:7s} {b.expected:8s} "
+                       f"{b.lane or '-':8s} {b.entry_t if b.entry_t is not None else '-':>7} "
+                       f"{b.done_t if b.done_t is not None else '-':>7}")
+        return out
+
+    def mis_sorts(self) -> list[str]:
         bad = []
         for b in self.boxes:
-            want = "reject" if b.miss else expected[b.size]
-            if b.lane != want:
-                bad.append(f"box {b.id}: expected {want}, got {b.lane}")
+            if b.lane is None:
+                bad.append(f"box {b.id}: never reached a lane (expected {b.expected})")
+            elif b.lane != b.expected:
+                bad.append(f"box {b.id}: expected {b.expected}, got {b.lane}")
         return bad
 
 
@@ -186,16 +255,24 @@ class Plc:
         self.device_id = device_id
         self._written: dict[str, bool] = {}
 
-    def _retry(self, fn):
-        """PLC stops serving Modbus while it restarts - reconnect once."""
-        try:
-            return fn()
-        except Exception:
-            self.c.close()
-            time.sleep(0.5)
-            if not self.c.connect():
-                raise
-            return fn()
+    def _retry(self, fn, attempts: int = 8):
+        """The runtime stops serving Modbus while it reloads - back off and retry.
+
+        A reload can accept the TCP connection and then reset it, so one retry is
+        not enough.
+        """
+        for i in range(attempts):
+            try:
+                return fn()
+            except Exception:
+                if i == attempts - 1:
+                    raise
+                self.c.close()
+                time.sleep(0.5)
+                try:
+                    self.c.connect()
+                except Exception:
+                    pass
 
     def write_inputs(self, values: dict[str, bool]) -> None:
         for name, val in values.items():
@@ -206,18 +283,30 @@ class Plc:
 
     def read_outputs(self) -> dict[str, bool]:
         r = self._retry(lambda: self.c.read_coils(QX_BASE, count=6, device_id=self.device_id))
-        names = ["MOTOR_RUN", "P1_VALVE", "P2_VALVE", "LAMP_RUN", "LAMP_FAULT", "LAMP_REJ"]
-        return dict(zip(names, r.bits[:6]))
+        return dict(zip(QX_NAMES, r.bits[:6]))
 
     def read_words(self) -> dict[str, int]:
-        r = self._retry(lambda: self.c.read_holding_registers(0, count=5, device_id=self.device_id))
-        names = ["state", "count_small", "count_large", "count_reject", "fault_code"]
-        return dict(zip(names, r.registers))
+        r = self._retry(lambda: self.c.read_holding_registers(0, count=5,
+                                                             device_id=self.device_id))
+        return dict(zip(QW_NAMES, r.registers))
 
     def set_input(self, name: str, value: bool) -> None:
         self._retry(lambda: self.c.write_coil(MX_BASE + MX_BITS[name], bool(value),
                                              device_id=self.device_id))
         self._written[name] = bool(value)
+
+    def wait_ready(self, timeout_s: float = 30.0) -> None:
+        """After a stop/start the runtime rebinds Modbus; wait until it answers."""
+        deadline = time.time() + timeout_s
+        last: Exception | None = None
+        while time.time() < deadline:
+            try:
+                self.read_words()
+                return
+            except Exception as exc:      # noqa: BLE001 - any transport error
+                last = exc
+            time.sleep(1.0)
+        raise SystemExit(f"PLC Modbus did not become ready in {timeout_s}s ({last})")
 
     def pulse(self, name: str) -> None:
         self.set_input(name, True)
@@ -230,13 +319,15 @@ class Plc:
 
 def load_scenario(path: Path) -> tuple[list[Box], dict]:
     spec = json.loads(Path(path).read_text())
-    boxes = [Box(id=b.get("id", i + 1), size=b["size"], miss=b.get("miss", False))
+    boxes = [Box(id=b.get("id", i + 1), size=b["size"],
+                 uncertain=b.get("uncertain", b.get("miss", False)),
+                 expect_lane=b.get("expect_lane"))
              for i, b in enumerate(spec.get("boxes", []))]
-    return boxes, spec.get("plant", {})
+    return boxes, spec
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description="conveyor plant simulator (Modbus TCP client)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=502)
     ap.add_argument("--scenario", required=True)
@@ -244,16 +335,26 @@ def main() -> int:
     ap.add_argument("--pitch", type=float, default=400.0)
     ap.add_argument("--log", default="sim/run.log")
     ap.add_argument("--max-s", type=float, default=120.0)
-    ap.add_argument("--no-start", action="store_true", help="do not press Start/Reset")
+    ap.add_argument("--no-start", action="store_true", help="do not press Reset/Start")
     args = ap.parse_args()
 
-    boxes, plant_cfg = load_scenario(Path(args.scenario))
-    plant = Plant(boxes=boxes, speed_mm_s=args.speed, pitch_mm=args.pitch,
-                  start_delay_s=plant_cfg.get("start_delay_s", 1.0))
+    boxes, spec = load_scenario(Path(args.scenario))
+    plant_cfg = spec.get("plant", {})
+    expect = dict(spec.get("expect", {}))
+    expect.update(spec.get("expect_counts", {}))
+    fault_expect = "state" in expect or "fault_code" in expect
+
+    plant = Plant(boxes=boxes,
+                  speed_mm_s=args.speed,
+                  pitch_mm=args.pitch,
+                  start_delay_s=plant_cfg.get("start_delay_s", 1.0),
+                  faults=spec.get("faults", {}))
     plc = Plc(args.host, args.port)
+    plc.wait_ready()
+    print(f"scenario {spec.get('name', args.scenario)}: "
+          f"{len(boxes)} box(es), faults={spec.get('faults', {}) or 'none'}")
 
     try:
-        # healthy chain, then Reset, then Start
         for name in ("E_STOP_OK", "PB_STOP", "P1_HOME", "P2_HOME", "MOTOR_OL", "MODE_AUTO"):
             plc.set_input(name, True)
         time.sleep(0.3)
@@ -263,34 +364,72 @@ def main() -> int:
             plc.pulse("PB_START")
             time.sleep(0.3)
         if plc.read_words()["state"] != 2:
-            print("PLC did not reach RUNNING:", plc.read_words())
-            return 2
+            # a log even when the run never started, otherwise the harness
+            # looks like it silently did nothing
+            return finish([f"scenario: {spec.get('name', args.scenario)}",
+                           f"PLC did not reach RUNNING: {plc.read_words()}",
+                           "RESULT: FAIL"], args.log)
 
-        while plant.t < args.max_s and not plant.done():
+        # when the scenario expects a fault, keep ticking after the last box has
+        # landed - the fault is what we are waiting for
+        while plant.t < args.max_s and (fault_expect or not plant.done()):
             plant.step(TICK_S, plc.read_outputs())
             plc.write_inputs(plant.inputs())
+            if expect and _settled(plc, expect):
+                break
             time.sleep(TICK_S)
 
         words = plc.read_words()
-        bad = plant.verdict()
-        lines = plant.events + [
-            "",
-            f"PLC words: {words}",
-        ]
-        if bad:
-            lines.append("MIS-SORTS:")
-            lines += [f"  {b}" for b in bad]
-        else:
-            lines.append("VERDICT: PASS - every box landed in the expected lane")
-        lines.append(f"PLC counters expect small={sum(1 for b in boxes if b.lane=='small')} "
-                     f"large={sum(1 for b in boxes if b.lane=='large')} "
-                     f"reject={sum(1 for b in boxes if b.lane=='reject')}")
-        text = "\n".join(lines)
-        print(text)
-        Path(args.log).write_text(text + "\n")
-        return 0 if not bad else 1
+        qx = plc.read_outputs()
+        lines = [f"scenario: {spec.get('name', args.scenario)}",
+                 f"note: {spec.get('note', '')}"]
+        lines += plant.events
+        lines += plant.box_lines()
+        lines.append("")
+        lines.append(f"PLC words : {words}")
+        lines.append(f"PLC coils : {qx}")
+
+        ok = True
+        if not fault_expect:
+            bad = plant.mis_sorts()
+            ok = not bad
+            if bad:
+                lines.append("MIS-SORTS:")
+                lines += [f"  {b}" for b in bad]
+        if expect:
+            for key in ("state", "fault_code", "count_small", "count_large", "count_reject"):
+                if key in expect and words[key] != expect[key]:
+                    ok = False
+                    lines.append(f"EXPECT FAIL: {key} expected {expect[key]}, got {words[key]}")
+            if expect.get("actuators_off") and (qx["MOTOR_RUN"] or qx["P1_VALVE"] or qx["P2_VALVE"]):
+                ok = False
+                lines.append(f"EXPECT FAIL: actuators must be off, got {qx}")
+            lines.append(f"expect: {expect}")
+
+        lines.append(f"RESULT: {'PASS' if ok else 'FAIL'}")
+        return finish(lines, args.log)
     finally:
         plc.close()
+
+
+def finish(lines: list[str], log_path: str) -> int:
+    text = "\n".join(lines)
+    print(text)
+    Path(log_path).write_text(text + "\n")
+    return 0 if lines and lines[-1] == "RESULT: PASS" else 1
+
+
+def _settled(plc: Plc, expect: dict) -> bool:
+    """Stop early once the PLC has latched the fault we were injecting."""
+    try:
+        w = plc.read_words()
+    except Exception:
+        return False
+    if "fault_code" in expect and w["fault_code"] == expect["fault_code"]:
+        return True
+    if expect.get("state") in (9, 10) and w["state"] in (9, 10):
+        return True
+    return False
 
 
 if __name__ == "__main__":

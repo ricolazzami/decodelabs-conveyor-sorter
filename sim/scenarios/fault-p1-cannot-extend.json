@@ -1,0 +1,11 @@
+{
+  "name": "fault-p1-cannot-extend",
+  "note": "TC-19: pusher 1 is jammed retracted. A LARGE box is classified, the valve is driven, the cylinder never reaches the extended sensor -> extend timeout, retract, FAULT.",
+  "boxes": [
+    { "id": 1, "size": "small" },
+    { "id": 2, "size": "large" }
+  ],
+  "faults": { "cylinder_jam": { "p1": "cannot_extend" } },
+  "expect": { "state": 9, "fault_code": 2, "actuators_off": true },
+  "plant": { "start_delay_s": 1.0 }
+}

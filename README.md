@@ -89,9 +89,9 @@ Replace them if you get real belt data.
 
 - **P0 Documentation** — complete (`docs/`, `TODO.md`).
 - **P1 Environment** — OpenPLC Runtime v4 + FUXA run from `docker-compose.yml`. Modbus TCP on port 502, served by the project's own Modbus server so the I/O image sizes come from `project.json`.
-- **P2 Plant simulator** — `sim/plant.py` plus `sim/scenarios/acceptance-10.json`. Single-box runs (small / large / reject), E-Stop and the two-step reset are verified.
+- **P2 Plant simulator** — `sim/plant.py` plus six scenarios and `sim/run-scenarios.sh` (`sim/README.md`). Models the belt, the box queue, both stations, both cylinders and their home/extended sensors, and injects faults: E-Stop, overload, a jammed pusher (extend or return) and a dead station 1 eye. Every box is logged with its truth, its expectation, its lane and its timestamps. The five fault scenarios pass; `acceptance-10` is the one that does not, and the reason is below.
 - **P3 Program** — Structured Text state machine in `src/conveyor-sorter/conveyor-sorter/pous/programs/main.st`. Compiles, uploads and runs headlessly.
-- **Acceptance run (TC-13, 10 boxes)** — **not green yet.** The counters do reach the expected 4 small / 3 large / 3 reject, but individual boxes still land in the wrong lane: a box whose size reading is uncertain passes straight instead of being rejected. The fix is in progress; the documentation is deliberately ahead of the code, and the gap is tracked in `TODO.md`.
+- **Acceptance run (TC-13, 10 boxes)** — **not green yet.** The counters do reach the expected 4 small / 3 large / 3 reject, but individual boxes still land in the wrong lane: a box whose size reading is uncertain passes straight instead of being rejected. The cause is now known: the size reading used for classification is taken when the sequencer gets round to it instead of at the moment the box is under the sensor. The fix is written and not yet verified; the documentation is deliberately ahead of the code, and the gap is tracked in `TODO.md`.
 - No hardware has ever been connected. Every safety claim in `docs/SAFETY.md` is design-level only.
 
 ## Notes
