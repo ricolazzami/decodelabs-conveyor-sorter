@@ -76,6 +76,26 @@ seconds, so the fault can land mid-run.
 The box table above it always prints, so a failing run still shows where each box
 went.
 
+## Acceptance test runner (TC-01 … TC-14)
+
+`sim/tests.py` runs the test plan's startup and sorting cases against the live
+PLC and writes the results to `docs/TEST-LOG.md`:
+
+```bash
+.venv/bin/python sim/tests.py          # every case, clean PLC state before each
+.venv/bin/python sim/tests.py TC-10    # one case
+```
+
+It reloads the program (stop/start, which is what clears the counters) before
+each case, reads the plant the same way `plant.py` does, and prints one line per
+case plus the evidence string that goes into the log. TC-13 shells out to the
+scenario runner, so a green log means both entry points agree.
+
+The cases that need the sequence to finish after a single stray input — TC-10 in
+particular — drive an **empty** plant so the cylinders still report their reed
+switches. Without that feedback the state machine would sit in `P1_DIVERT`
+forever, which is correct behaviour but useless as a test of counting.
+
 ## Current status
 
 `acceptance-10` passes: every box in its expected lane, counters 4 / 3 / 3, no

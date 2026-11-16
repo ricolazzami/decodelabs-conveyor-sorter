@@ -51,28 +51,34 @@ If the PLC card has only 8 DI, drop `MODE_AUTO` and `S2_CLEAR` and use timers in
 | `P2_VALVE` | %QX0.2 | 5/2 solenoid Y2 | Retracted | Divert REJECT (lane C) |
 | `LAMP_RUN` | %QX0.3 | Green stack light | Off | Running |
 | `LAMP_FAULT` | %QX0.4 | Red stack light | Off | Fault / E-Stop |
-| `LAMP_REJECT` | %QX0.5 | Amber stack light | Off | A box went to reject (pulses 1 s) |
+| `LAMP_REJ` | %QX0.5 | Amber stack light | Off | A box went to reject (pulses 1 s) |
 
 Counters and state are exposed to FUXA over Modbus TCP as holding registers (see §9), not as outputs.
 
 ## 4. Sequence
 
 ```
+classification (every scan, outside the CASE):
+  S1_BOX ↑        latch size_sample := S1_SIZE, start T_settle
+  200 ms later    both samples equal?  tall  → p1_queued++      (LARGE)
+                                        short → FIFO ← SMALL
+                       samples differ, or the box left early → FIFO ← REJECT
+
+state machine:
 IDLE ──(START ∧ E_STOP_OK ∧ MOTOR_OL ∧ P1_HOME ∧ P2_HOME ∧ ¬reset_required)──► READY
-READY ──(run seal)──► RUNNING                              MOTOR_RUN = 1
-RUNNING ──(S1_BOX ↑)──► S1_CLASSIFY
-S1_CLASSIFY ──(settle 200 ms)──►  tall?  ──► P1_DIVERT      (box_class := LARGE)
-                                  not tall ──► RUNNING      (box_class := SMALL or REJECT)
-                                  no reading ──► box_class := REJECT, RUNNING
-P1_DIVERT  : P1_VALVE = 1 ; exit on (P1_EXT ∧ ¬S1_BOX) or T_extend → FAULT
-P1_RETURN  : P1_VALVE = 0 ; exit on P1_HOME or T_return → FAULT ; count_LARGE++
-RUNNING ──(S2_BOX ↑ ∧ box_class = REJECT)──► P2_DIVERT
-P2_DIVERT  : P2_VALVE = 1 ; exit on (P2_EXT ∧ S2_CLEAR) or T_extend → FAULT
-P2_RETURN  : P2_VALVE = 0 ; exit on P2_HOME or T_return → FAULT ; count_REJECT++
-RUNNING ──(S2_BOX ↑ ∧ box_class ≠ REJECT)──► RUNNING ; count_SMALL++ on S2_BOX falling edge
+READY ──(clear the tracking, never the counters)──► RUNNING     MOTOR_RUN = 1
+RUNNING ──(box latched at station 2)──► pop FIFO
+                                   SMALL  ──► RUNNING, CNT_SMALL++
+                                   REJECT / empty FIFO ──► P2_DIVERT
+         ──(p1_queued > 0 ∧ P1_HOME)──► P1_DIVERT
+P1_DIVERT  : P1_VALVE = 1 ; T_extend → FAULT 2
+P1_RETURN  : P1_VALVE = 0 ; exit on P1_HOME ; T_return → FAULT 3 ; CNT_LARGE++
+P2_DIVERT  : P2_VALVE = 1 ; T_extend → FAULT 4
+P2_RETURN  : P2_VALVE = 0 ; exit on P2_HOME ; T_return → FAULT 5 ; CNT_REJECT++
+             and the amber lamp pulses for T_reject_lamp
 any state ──(STOP)──► STOPPING : outputs off ──► IDLE
-any state ──(¬E_STOP_OK)──► ESTOP
-any fault condition ──► FAULT
+any state ──(¬E_STOP_OK)──► ESTOP ; ──(¬MOTOR_OL)──► FAULT 6
+box at both stations for 3 s ──► FAULT 7
 ```
 
 Two layers, on purpose:
@@ -121,12 +127,20 @@ Rules applied everywhere:
 ## 7. Classifier (single place to change)
 
 ```
-tall := S1_SIZE                      (* 1 = box taller than 60 mm = LARGE *)
-IF tall THEN box_class := LARGE
-ELSIF NOT S1_BOX AND tall_ever_seen THEN ... (not needed in v1)
-ELSE box_class := SMALL
+IF S1_BOX rising     THEN size_sample := S1_SIZE ; s1_pending := TRUE
+IF s1_pending AND T_settle.Q THEN
+    IF S1_SIZE <> size_sample THEN REJECT   (* two readings disagree *)
+    ELSIF size_sample         THEN LARGE
+    ELSE                           SMALL
+IF s1_pending AND NOT S1_BOX  THEN REJECT   (* left before the reading settled *)
 ```
-On timeout / contradiction: `box_class := REJECT` (never guess). Swapping to colour touches this block only.
+
+Two samples 200 ms apart, because that is roughly the time a 200 mm box takes to
+cross a 60 mm-high beam at 0.3 m/s. A single sample at one instant could catch the
+box's leading chamfer or a reflection and call a tall box short.
+
+Swapping to colour touches this block only: the height eye at 60 mm becomes a
+colour sensor, and the rest of the program is unchanged.
 
 ## 8. Timing constants (simulation values — confirm at bench)
 
@@ -136,9 +150,24 @@ On timeout / contradiction: `box_class := REJECT` (never guess). Swapping to col
 | `T_extend` | 800 ms | cylinder stroke guard |
 | `T_return` | 1000 ms | spring-return guard |
 | `T_reject_lamp` | 1000 ms | amber pulse |
-| `T_debounce` | 20 ms | photo-eye chatter |
+| *(no `T_debounce`)* | — | dropped on purpose, see below |
 | box pitch (sim) | 400 mm | plant model |
 | belt speed (sim) | 0.3 m/s | ⇒ ~45 boxes/min theoretical |
+
+`T_debounce` was in the first draft and is deliberately not implemented. Two
+reasons:
+
+1. The scan is 20 ms, so a contact that chatters for less than one scan is not
+   seen at all, and a chatter that spans a scan boundary looks like a genuine
+   edge. A software debounce would therefore only help for chatter of 20–200 ms.
+2. A box blocks the beam for about 1 s. The 200 ms two-sample classification is
+   already a much longer filter than any debounce would be, and it rejects a box
+   whose reading is not stable instead of guessing.
+
+What this does **not** cover, and is documented as a limitation: if a box's beam
+is interrupted and re-made inside the 200 ms window (a real gap in the box, or
+electrical noise), the classifier sees two boxes. On a real machine the fix is a
+hardware debounce or a light curtain with a clean output — not more PLC code.
 
 ## 9. HMI — FUXA over Modbus TCP
 
@@ -150,9 +179,9 @@ OpenPLC Runtime v4 exposes the `modbus_slave` plugin (TCP, port 502). FUXA conne
 | P1 coil / P2 coil | coils 1, 2 | `P1_VALVE`, `P2_VALVE` |
 | Stack light trio | coils 3–5 | `LAMP_RUN/FAULT/REJECT` |
 | Start / Stop | coils 80–81 (write) | `HMI_START` `%MX2.0`, `HMI_STOP` `%MX2.1` (never Reset — SR-08) |
-| State number | holding register 0 | state integer |
-| Counters | holding registers 1–3 | `count_SMALL/LARGE/REJECT` |
-| Fault cause word | holding register 4 | `fault_cause` |
+| State number | holding register 0 | `ST_WORD` (`%QW0`) |
+| Counters | holding registers 1–3 | `CNT_SMALL`, `CNT_LARGE`, `CNT_REJECT` (`%QW1..%QW3`) |
+| Fault cause word | holding register 4 | `FAULT_CODE` (`%QW4`) |
 
 Keep a physical button path too — FUXA is an indicator/extra control, not the only way to stop the line. A web HMI is not a safety device.
 

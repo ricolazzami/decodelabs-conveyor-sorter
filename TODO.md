@@ -53,16 +53,27 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
     function block is executed, so the classification timer had to be called every scan
 
 
-## P3 — Program skeleton (M2)
+## P3 — Program skeleton (M2) — DONE
 
-- [ ] Create OpenPLC project, declare all tags with descriptions
-- [ ] G1 safety & enable: `E_STOP_OK`, `MOTOR_OL`, run seal, `reset_required` latch
-- [ ] G2 state machine: 11 states, one-hot rungs, `box_class` memory
-- [ ] G3 outputs: one coil per rung, no duplicate tags
-- [ ] G4 timers: T_classify, T_extend×2, T_return×2, T_reject_lamp, T_debounce
-- [ ] G5 counters: count_SMALL / LARGE / REJECT, fault_cause word
-- [ ] Compile clean, cold start → IDLE
-- [ ] Run TC-02…TC-14
+- [x] Create OpenPLC project, declare all tags with descriptions — 27 located tags, each with a
+  comment in `main.st`; TC-01 proves the program and `docs/ARCHITECTURE.md` agree 1:1
+- [x] G1 safety & enable: `E_STOP_OK`, `MOTOR_OL`, run seal, `reset_required` latch
+- [x] G2 state machine: written as an IEC 61131-3 **Structured Text `CASE`**, not one-hot rungs
+  (the brief allows "ladder or state machine"). States 0-10, state 3 reserved: classification runs
+  on every scan outside the `CASE`, and the class memory is an arrival-order FIFO plus `p1_queued`
+  rather than one variable, so a busy actuator cannot make a class arrive late
+- [x] G3 outputs: one coil per tag, written only in the output block
+- [x] G4 timers: T_settle (200 ms classify), T_extend ×2 (800 ms), T_return ×2 (1000 ms),
+  T_reject_lamp (1000 ms)
+  - **`T_debounce` deliberately dropped**: the scan is 20 ms, so chatter shorter than a scan is
+    never seen, and the 200 ms two-sample classification is already a longer filter. A gap in the
+    beam *inside* that 200 ms window would still read as two boxes — a documented limitation, and
+    the fix at the bench is hardware debounce, not more PLC code (`docs/ARCHITECTURE.md` §8)
+- [x] G5 counters: `CNT_SMALL` / `CNT_LARGE` / `CNT_REJECT` in `%QW1..%QW3`, `FAULT_CODE` (1-7) in `%QW4`
+- [x] Compile clean and upload (editor CLI answers `"ok": true`, no error warnings)
+- [x] Cold start → IDLE
+- [x] Run TC-02…TC-14: **14/14 pass** (`docs/TEST-LOG.md`, `sim/tests.py`), and all six scenarios
+  pass (`sim/run-scenarios.sh`)
 
 ## P4 — Safety (M3)
 

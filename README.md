@@ -89,9 +89,11 @@ Replace them if you get real belt data.
 
 - **P0 Documentation** — complete (`docs/`, `TODO.md`).
 - **P1 Environment** — OpenPLC Runtime v4 + FUXA run from `docker-compose.yml`. Modbus TCP on port 502, served by the project's own Modbus server so the I/O image sizes come from `project.json`.
-- **P2 Plant simulator** — `sim/plant.py` plus six scenarios and `sim/run-scenarios.sh` (`sim/README.md`). Models the belt, the box queue, both stations, both cylinders and their home/extended sensors, and injects faults: E-Stop, overload, a jammed pusher (extend or return) and a dead station 1 eye. Every box is logged with its truth, its expectation, its lane and its timestamps. The five fault scenarios pass; `acceptance-10` is the one that does not, and the reason is below.
+- **P2 Plant simulator** — `sim/plant.py` plus six scenarios and `sim/run-scenarios.sh` (`sim/README.md`). Models the belt, the box queue, both stations, both cylinders and their home/extended sensors, and injects faults: E-Stop, overload, a jammed pusher (extend or return) and a dead station 1 eye. Every box is logged with its truth, its expectation, its lane and its timestamps. All six scenarios pass.
 - **P3 Program** — Structured Text state machine in `src/conveyor-sorter/conveyor-sorter/pous/programs/main.st`. Compiles, uploads and runs headlessly. Two layers: classification runs on every scan so a busy actuator sequence can never sample air instead of the box, and the state machine only drives the actuators.
 - **Acceptance run (TC-13, 10 boxes)** — **green.** `sim/scenarios/acceptance-10.json`: 4 small, 3 large, 3 boxes whose height reading is not trustworthy. Every box lands in the lane it should, counters read 4 / 3 / 3, no faults. All five fault scenarios pass too (`bash sim/run-scenarios.sh`).
+- **TC-01 … TC-14** — **14/14 pass** (`.venv/bin/python sim/tests.py`, results and evidence in `docs/TEST-LOG.md`): I/O map matches the program tag for tag, cold start, Start/Stop, Start refused while the E-Stop is pressed, all three lanes, the short-pulse edge rule, both return sequences and the two-box case.
+- **One deviation from the test plan, stated openly:** `T_debounce` is not implemented; the 20 ms scan and the 200 ms two-sample classification are the filter, and a beam gap inside that window would still read as two boxes (`docs/ARCHITECTURE.md` §8).
 - No hardware has ever been connected. Every safety claim in `docs/SAFETY.md` is design-level only.
 
 ## Notes
