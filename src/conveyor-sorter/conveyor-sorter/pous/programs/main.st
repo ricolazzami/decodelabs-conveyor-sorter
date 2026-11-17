@@ -50,23 +50,23 @@ VAR
   S2_CLEAR   : BOOL AT %MX1.5;   (* station 2 exit                *)
 
   (* ---------- digital outputs ---------- *)
-  MOTOR_RUN  : BOOL AT %QX0.0;
-  P1_VALVE   : BOOL AT %QX0.1;
-  P2_VALVE   : BOOL AT %QX0.2;
-  LAMP_RUN   : BOOL AT %QX0.3;
-  LAMP_FAULT : BOOL AT %QX0.4;
-  LAMP_REJ   : BOOL AT %QX0.5;
+  MOTOR_RUN  : BOOL AT %QX0.0;   (* belt contactor                 *)
+  P1_VALVE   : BOOL AT %QX0.1;   (* pusher 1 solenoid, LARGE       *)
+  P2_VALVE   : BOOL AT %QX0.2;   (* pusher 2 solenoid, REJECT      *)
+  LAMP_RUN   : BOOL AT %QX0.3;   (* green lamp, belt running       *)
+  LAMP_FAULT : BOOL AT %QX0.4;   (* red lamp, FAULT or ESTOP       *)
+  LAMP_REJ   : BOOL AT %QX0.5;   (* amber lamp, reject lane used   *)
 
   (* ---------- HMI memory coils (Modbus %MX2.x = coils 80/81) ---------- *)
-  HMI_START  : BOOL AT %MX2.0;
-  HMI_STOP   : BOOL AT %MX2.1;
+  HMI_START  : BOOL AT %MX2.0;   (* momentary Start on the web HMI *)
+  HMI_STOP   : BOOL AT %MX2.1;   (* momentary Stop on the web HMI  *)
 
   (* ---------- HMI words (Modbus holding registers) ---------- *)
   ST_WORD    : INT AT %QW0;      (* current state number          *)
-  CNT_SMALL  : INT AT %QW1;
-  CNT_LARGE  : INT AT %QW2;
-  CNT_REJECT : INT AT %QW3;
-  FAULT_CODE : INT AT %QW4;
+  CNT_SMALL  : INT AT %QW1;      (* boxes out on the small lane    *)
+  CNT_LARGE  : INT AT %QW2;      (* boxes diverted by pusher 1     *)
+  CNT_REJECT : INT AT %QW3;      (* boxes diverted by pusher 2     *)
+  FAULT_CODE : INT AT %QW4;      (* 0 none, 1...8 see docs/SAFETY  *)
 
   (* ---------- classification ---------- *)
   size_sample  : BOOL := FALSE;  (* S1_SIZE latched at the rising edge *)
@@ -74,39 +74,39 @@ VAR
   s2_pending   : BOOL := FALSE;  (* a box reached station 2, not yet decided *)
   p1_queued    : INT  := 0;      (* LARGE boxes waiting for pusher 1 *)
   q_class      : ARRAY[0..7] OF INT;   (* 0 SMALL, 2 REJECT; never 1 *)
-  q_head       : INT := 0;
-  q_tail       : INT := 0;
+  q_head       : INT := 0;       (* oldest record in the queue     *)
+  q_tail       : INT := 0;       (* next free slot in the queue    *)
 
   (* ---------- actuator sequence ---------- *)
-  state        : INT := 0;
-  reset_required : BOOL := FALSE;
-  p1_did_ext   : BOOL := FALSE;
-  p2_did_ext   : BOOL := FALSE;
+  state        : INT := 0;       (* sequencer state, see the CASE  *)
+  reset_required : BOOL := FALSE;  (* a fault happened, Start is blocked *)
+  p1_did_ext   : BOOL := FALSE;  (* pusher 1 really left HOME      *)
+  p2_did_ext   : BOOL := FALSE;  (* pusher 2 really left HOME      *)
   drop_class   : INT := 0;       (* class popped for the box at station 2 *)
 
   (* ---------- input conditioning ---------- *)
-  stop_cmd     : BOOL;
-  safety_ok    : BOOL;
-  start_act    : BOOL;
-  reset_act    : BOOL;
-  start_prev   : BOOL := FALSE;
-  stop_prev    : BOOL := TRUE;
-  reset_prev   : BOOL := FALSE;
-  s1_prev      : BOOL := FALSE;
-  s2_prev      : BOOL := FALSE;
-  s1_rise      : BOOL;
-  s2_rise      : BOOL;
-  start_rise   : BOOL;
-  reset_rise   : BOOL;
-  stop_rise    : BOOL;
+  stop_cmd     : BOOL;           (* field NC stop OR HMI stop      *)
+  safety_ok    : BOOL;           (* E-Stop healthy AND no overload *)
+  start_act    : BOOL;           (* field Start OR HMI Start       *)
+  reset_act    : BOOL;           (* field Reset only, never HMI    *)
+  start_prev   : BOOL := FALSE;  (* last scan's Start, for the edge *)
+  stop_prev    : BOOL := TRUE;   (* last scan's Stop (NC = 1)      *)
+  reset_prev   : BOOL := FALSE;  (* last scan's Reset              *)
+  s1_prev      : BOOL := FALSE;  (* last scan's S1_BOX             *)
+  s2_prev      : BOOL := FALSE;  (* last scan's S2_BOX             *)
+  s1_rise      : BOOL;           (* a box just reached station 1   *)
+  s2_rise      : BOOL;           (* a box just reached station 2   *)
+  start_rise   : BOOL;           (* Start pressed this scan        *)
+  reset_rise   : BOOL;           (* Reset pressed this scan        *)
+  stop_rise    : BOOL;           (* Stop pressed this scan         *)
 
-  t_settle     : TON;
-  t_p1_ext     : TON;
-  t_p1_ret     : TON;
-  t_p2_ext     : TON;
-  t_p2_ret     : TON;
-  t_s2_stuck   : TON;
-  t_lamp       : TON;
+  t_settle     : TON;            (* 200 ms second size sample      *)
+  t_p1_ext     : TON;            (* pusher 1 extend watchdog       *)
+  t_p1_ret     : TON;            (* pusher 1 return watchdog       *)
+  t_p2_ext     : TON;            (* pusher 2 extend watchdog       *)
+  t_p2_ret     : TON;            (* pusher 2 return watchdog       *)
+  t_s2_stuck   : TON;            (* both stations blocked > 3 s    *)
+  t_lamp       : TON;            (* reject lamp hold               *)
 END_VAR
 
 (* ============================================================

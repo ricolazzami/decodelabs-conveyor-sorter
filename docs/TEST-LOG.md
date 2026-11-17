@@ -1,13 +1,12 @@
-
 # TEST LOG — conveyor box sorter
 
-Results are appended, newest last. Each block is one run of `sim/tests.py`
-(TC-01…TC-26) or `sim/run-scenarios.sh`. A `BLOCKED` case is one that cannot be
-executed without physical hardware — it is reported, not passed. See
-`docs/TEST-PLAN.md` for what each case is meant to prove and `docs/SAFETY.md` §7
-for why TC-17 is blocked.
+One block per full run of `.venv/bin/python sim/tests.py` (TC-01...TC-34), plus
+the evidence that does not come out of the runner. A `BLOCKED` case is one that
+cannot be executed without physical hardware - it is reported, not passed. See
+`docs/TEST-PLAN.md` for what each case proves and `docs/SAFETY.md` §7 for why
+TC-17 is blocked.
 
-## Run 2026-11-17 09:09 — sim/tests.py
+## Run 2026-11-17 09:50 — sim/tests.py
 
 | Case | Result | Evidence |
 |------|--------|----------|
@@ -38,8 +37,24 @@ for why TC-17 is blocked.
 | TC-25 | PASS | latched in FAULT; HMI Start+Stop written: state 9, fault 6 still standing, motor off. The HMI has no reset coil at all (SR-08), and a Reset via the %MX input path is a simulator artefact, not a field one |
 | TC-26 | PASS | state 4: valve was on=True, valves off after the trip=True, both cylinders home=True, Reset+Start recovers=True; state 6: valve was on=True, valves off after the trip=True, both cylinders home=True, Reset+Start recovers=True |
 | TC-27 | PASS | HMI matches the runtime |
-| TC-28 | PASS | PLC 1/1/1, HMI 1/1/1, matched in 0.41 s |
+| TC-28 | PASS | PLC 1/1/1, HMI 1/1/1, matched in 0.61 s |
 | TC-29 | PASS | FUXA down 2 s: line stopped and restarted from the panel only (RUNNING=True), counters kept=True; HMI back and agreeing=True |
 | TC-30 | PASS | HMI Start from IDLE=True, HMI Stop=True, reset widgets on the screen=0 (must be 0) |
+| TC-31 | PASS | 6 scenario(s) run by the script, 6 PASS, 0 log(s) missing or not PASS |
+| TC-32 | PASS | same-scan station overlap=10 tick(s), S2-leaves-as-S1-arrives=0 tick(s); states [2, 4, 5, 2] - illegal transitions none; valve problems none; lanes {1: 'small', 2: 'large'}; counters 1/1/0 |
+| TC-33 | PASS | 60 declared tags, 0 without a comment; 11 state branches, 0 without a comment |
+| TC-34 | PASS | function blocks called: ['t_lamp', 't_p1_ext', 't_p1_ret', 't_p2_ext', 't_p2_ret', 't_s2_stuck', 't_settle']; types: ['ARRAY[0..7] OF INT', 'BOOL', 'INT', 'TON']; vendor names: none |
 
-29/30 passed, 1 blocked (no hardware), 0 failed.
+33/34 passed, 1 blocked (no hardware), 0 failed.
+
+## Video evidence (P6)
+
+`docs/demo.mp4`, recorded with `.venv/bin/python sim/demo.py` against the live
+PLC and the FUXA screen, one take:
+
+| Scene | Time | What it shows |
+|-------|------|---------------|
+| 10-box cycle | 0:00-0:18 | counters climb to 4 SMALL / 3 LARGE / 3 REJECT, no valve violation |
+| E-Stop mid-divert | 0:21-0:25 | pusher 1 energized, then state ESTOP, fault "E-Stop pressed", motor and valves off, counters frozen at 4 / 3 / 3 |
+| Two-step recovery | 0:26-0:28 | Reset leaves IDLE with the latch cleared, then a separate Start returns to RUNNING; counters kept |
+| HMI Stop / HMI Start | 0:28-0:34 | the real screen buttons stop and restart the line |

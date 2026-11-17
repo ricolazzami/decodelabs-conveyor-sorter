@@ -96,11 +96,11 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 - [x] Run TC-27…TC-30 (4 PASS, `docs/TEST-LOG.md`)
 - [x] Screenshot for the report (`docs/img/fuxa.png`)
 
-## P6 — Verification (M4)
+## P6 — Verification (M4) — DONE
 
-- [ ] Run TC-01…TC-34, fill `docs/TEST-LOG.md` with results + evidence
-- [x] Scripted 10-box run, zero mis-sorts (`sim/scenarios/acceptance-10.json`)
-- [ ] Record video: 10-box cycle, E-Stop mid-divert, two-step recovery, HMI
+- [x] Run TC-01…TC-34, fill `docs/TEST-LOG.md` with results + evidence — **33 PASS, 1 BLOCKED (TC-17), 0 FAIL**
+- [x] Scripted 10-box run, zero mis-sorts (`sim/scenarios/acceptance-10.json`, TC-31 re-runs all six)
+- [x] Record video: 10-box cycle, E-Stop mid-divert, two-step recovery, HMI (`docs/demo.mp4`, `sim/demo.py`)
 
 ## P7 — Documentation and submission (M5)
 

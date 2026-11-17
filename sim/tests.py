@@ -114,7 +114,7 @@ class Plc2(Plc):
         return self.state() == RUNNING
 
     def feed(self, boxes: list[Box], until_s: float = 40.0,
-             pitch: float = 400.0) -> dict:
+             pitch: float = 400.0, observe=None) -> dict:
         """Run the plant until every box has landed, watching the invariants.
 
         Then keep the clock running until the PLC has finished what it started:
@@ -128,6 +128,8 @@ class Plc2(Plc):
         lamp_seen = False
         t0 = time.time()
         while plant.t < until_s and not plant.done():
+            if observe:
+                observe(plant, self.read_outputs(), self.read_words()["state"])
             self._tick(plant, seen_states, violations, lamp_seen_point=True)
             lamp_seen = lamp_seen or self.read_outputs()["LAMP_REJ"]
         while plant.t < until_s + 5.0:
@@ -831,6 +833,105 @@ def tc30(ctx) -> tuple[bool, str]:
     return ok, (f"HMI Start from IDLE={started}, HMI Stop={stopped}, "
                 f"reset widgets on the screen={len(reset_widgets)} (must be 0)")
 
+# ---------------------------------------------------------------- reproducibility
+MAIN_ST = ROOT / "src/conveyor-sorter/conveyor-sorter/pous/programs/main.st"
+
+# the only state changes the program is allowed to make. Any state may fall into
+# FAULT (9) or ESTOP (10) - the supervisor always wins - so those are added below.
+LEGAL_EDGES = {(0, 1), (1, 2), (2, 4), (2, 6), (2, 8), (4, 5), (5, 2),
+               (6, 7), (7, 2), (8, 0), (9, 8), (9, 0), (10, 0)}
+
+def tc31(ctx) -> tuple[bool, str]:
+    """NFR-07: the whole scripted sequence runs from the runner, and its logs are
+    on disk afterwards."""
+    p = subprocess.run(["bash", "sim/run-scenarios.sh"], cwd=ROOT, timeout=1800,
+                       capture_output=True, text=True)
+    runs = re.findall(r"^(\S+)\s+RESULT: (PASS|FAIL)\s*$", p.stdout, re.M)
+    logs = {n: (ROOT / "sim/logs" / f"{n}.log") for n, _ in runs}
+    missing = [n for n in logs if not logs[n].exists()
+               or not logs[n].read_text().rstrip().endswith("RESULT: PASS")]
+    ok = (p.returncode == 0 and len(runs) >= 6
+          and all(res == "PASS" for _, res in runs) and not missing)
+    detail = (f"{len(runs)} scenario(s) run by the script, "
+              f"{sum(1 for _, r in runs if r == 'PASS')} PASS, "
+              f"{len(missing)} log(s) missing or not PASS"
+              + (f" ({', '.join(missing)})" if missing else ""))
+    return ok, detail
+
+def tc32(ctx) -> tuple[bool, str]:
+    """NFR-01: two stations touched in the same scan. Pitch 600 mm puts the next
+    box at the station-1 edge at the exact moment the first leaves station 2."""
+    plc, rt = ctx["plc"], ctx["rt"]
+    rt.cycle()
+    plc.wait_ready()
+    plc.boot()
+    if not plc.start():
+        return False, "PLC did not reach RUNNING"
+    seen = {"both": 0, "handover": 0}
+    prev: dict = {}
+
+    def observe(plant, qx, st) -> None:
+        cur = plant.inputs()
+        if cur["S1_BOX"] and cur["S2_BOX"]:
+            seen["both"] += 1
+        if (prev and prev["S2_BOX"] and not prev["S1_BOX"]
+                and not cur["S2_BOX"] and cur["S1_BOX"]):
+            seen["handover"] += 1
+        prev.update(cur)
+
+    r = plc.feed([Box(id=1, size="small"), Box(id=2, size="large")],
+                 pitch=600.0, observe=observe)
+    states = r["states"]
+    bad = [f"{a}->{b}" for a, b in zip(states, states[1:])
+           if (a, b) not in LEGAL_EDGES and b not in (FAULT, ESTOP)]
+    lanes = {b.id: b.lane for b in r["boxes"]}
+    w = r["words"]
+    ok = (not bad and not r["violations"] and (seen["both"] or seen["handover"])
+          and lanes == {1: "small", 2: "large"}
+          and w["count_small"] == 1 and w["count_large"] == 1 and w["count_reject"] == 0)
+    return ok, (f"same-scan station overlap={seen['both']} tick(s), "
+                f"S2-leaves-as-S1-arrives={seen['handover']} tick(s); "
+                f"states {states} - illegal transitions {bad or 'none'}; "
+                f"valve problems {r['violations'] or 'none'}; lanes {lanes}; "
+                f"counters {w['count_small']}/{w['count_large']}/{w['count_reject']}")
+
+def tc33(ctx) -> tuple[bool, str]:
+    """NFR-02: the printout is readable on its own - every tag and every state
+    carries a comment."""
+    lines = MAIN_ST.read_text().splitlines()
+    start = next(i for i, l in enumerate(lines) if l.strip() == "VAR")
+    end = next(i for i, l in enumerate(lines) if l.strip() == "END_VAR")
+    tags = [l.strip() for l in lines[start + 1:end]
+            if l.strip() and not l.strip().startswith("(*")]
+    bare_tags = [t for t in tags if "(*" not in t]
+    branches = [l.strip() for l in lines if re.match(r"^\s*\d+\s*:", l)]
+    bare_states = [b for b in branches if "(*" not in b]
+    ok = not bare_tags and not bare_states and len(tags) >= 40 and len(branches) >= 9
+    return ok, (f"{len(tags)} declared tags, {len(bare_tags)} without a comment"
+                f"{': ' + ', '.join(t.split(':')[0] for t in bare_tags) if bare_tags else ''}; "
+                f"{len(branches)} state branches, {len(bare_states)} without a comment")
+
+def tc34(ctx) -> tuple[bool, str]:
+    """NFR-03: nothing vendor-only. Standard IEC types and only the TON block."""
+    code = re.sub(r"\(\*.*?\*\)", " ", MAIN_ST.read_text(), flags=re.S)
+    raw = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", code))
+    calls = raw - {"OR", "AND", "NOT", "XOR", "MOD"}      # operators may precede "("
+    fbs = set(re.findall(r"^\s*(\w+)\s+:\s*TON\s*(?:AT|:=|;)", code, re.M))
+    foreign = sorted(calls - fbs)
+    decls = re.findall(r"^\s*\w+\s+:\s+([A-Za-z0-9_\[\]\. ]+?)\s*(?:AT\s+%|:=|;)", code, re.M)
+    types = {re.sub(r"\s+", " ", d) for d in decls}
+    allowed_types = {"BOOL", "INT", "TON", "ARRAY[0..7] OF INT"}
+    bad_types = sorted(types - allowed_types)
+    vendor = sorted(set(re.findall(
+        r"\b(R_TRIG|F_TRIG|CTU|CTD|TOF|TP|SR|RS|MOVE|LIMIT|SEL|"
+        r"OpenPLC|Arduino|Siemens|Rockwell|Allen.?Bradley)\b", code)))
+    ok = not foreign and not bad_types and not vendor
+    return ok, (f"function blocks called: {sorted(calls) or 'none'}"
+                f"{' - foreign ' + str(foreign) if foreign else ''}; "
+                f"types: {sorted(types)}"
+                f"{' - foreign ' + str(bad_types) if bad_types else ''}; "
+                f"vendor names: {vendor or 'none'}")
+
 CASES = [("TC-01", tc01), ("TC-02", tc02), ("TC-03", tc03), ("TC-04", tc04),
          ("TC-05", tc05), ("TC-06", tc06), ("TC-07", tc07), ("TC-08", tc08),
          ("TC-09", tc09), ("TC-10", tc10), ("TC-11", tc11), ("TC-12", tc12),
@@ -838,7 +939,8 @@ CASES = [("TC-01", tc01), ("TC-02", tc02), ("TC-03", tc03), ("TC-04", tc04),
          ("TC-17", tc17), ("TC-18", tc18), ("TC-19", tc19), ("TC-20", tc20),
          ("TC-21", tc21), ("TC-22", tc22), ("TC-23", tc23), ("TC-24", tc24),
          ("TC-25", tc25), ("TC-26", tc26), ("TC-27", tc27), ("TC-28", tc28),
-         ("TC-29", tc29), ("TC-30", tc30)]
+         ("TC-29", tc29), ("TC-30", tc30), ("TC-31", tc31), ("TC-32", tc32),
+         ("TC-33", tc33), ("TC-34", tc34)]
 
 
 def main() -> int:
