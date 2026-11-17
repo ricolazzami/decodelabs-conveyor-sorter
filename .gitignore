@@ -20,3 +20,7 @@ squashfs-root/
 .DS_Store
 Thumbs.db
 sim/logs/
+
+# generated soundtrack for the demo video (audio/build.py makes it)
+audio/demo.wav
+audio/demo.raw.wav

@@ -101,6 +101,7 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 - [x] Run TC-01…TC-34, fill `docs/TEST-LOG.md` with results + evidence — **33 PASS, 1 BLOCKED (TC-17), 0 FAIL**
 - [x] Scripted 10-box run, zero mis-sorts (`sim/scenarios/acceptance-10.json`, TC-31 re-runs all six)
 - [x] Record video: 10-box cycle, E-Stop mid-divert, two-step recovery, HMI (`docs/demo.mp4`, `sim/demo.py`)
+- [x] Replace it with a live animated video: 3D view of the line (`viz/`, `sim/demo3d.py`) driven by the plant simulator and the PLC's own coils and words, FUXA screen as picture-in-picture, captions, soundtrack from `audio/build.py` — `docs/demo.mp4`; the old HMI-only clip kept as `docs/hmi.mp4`
 
 ## P7 — Documentation and submission (M5)
 

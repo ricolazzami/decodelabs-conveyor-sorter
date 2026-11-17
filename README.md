@@ -34,6 +34,7 @@ Everything else (platform, lane count, numbers) is a decision we made and record
 6. Plant simulator + scenario files — `sim/`
 7. FUXA HMI project + screenshot — `fuxa/`, `docs/img/fuxa.png`
 8. Report and demo video for the portal
+9. Live 3D view of the line — `viz/` (Three.js, orbit and zoom) driven by `sim/demo3d.py`, plus the same run as a narrated video with sound — `docs/demo.mp4`
 
 ## Repo layout
 
@@ -47,8 +48,10 @@ docs/SAFETY.md         E-Stop, interlocks, safety matrix, limitations
 docs/TEST-PLAN.md      TC-01 … TC-34
 docs/DECISIONS.md      every grill answer + the one open question
 src/                   OpenPLC program (exported project + Structured Text source)
-sim/                   Python plant simulator (Modbus TCP) + scenarios
+sim/                   Python plant simulator (Modbus TCP) + scenarios + demo3d.py
 fuxa/                  HMI project (build.py generates it, shot.py screenshots it)
+viz/                   live 3D view of the line (Three.js, vendored locally)
+audio/                 soundtrack build for the demo video (audio/build.py)
 docs/img/              diagrams and screenshots
 ```
 
@@ -68,9 +71,13 @@ python3 fuxa/shot.py                 # -> docs/img/fuxa.png
 # 5. Run a scenario
 python sim/plant.py --scenario sim/scenarios/acceptance-10.json
 
+# 6. Watch the line move (live 3D view) or record the demo video
+.venv/bin/python sim/demo3d.py --live     # -> http://localhost:8099
+.venv/bin/python sim/demo3d.py            # -> docs/demo.mp4
+```
+
 The web HMI is at <http://localhost:1881>. Start and Stop work from the screen;
 there is no Reset there on purpose (SR-08).
-```
 
 Native OpenPLC install (Arch supported by the installer):
 
@@ -95,7 +102,7 @@ Replace them if you get real belt data.
 - **P3 Program** — Structured Text state machine in `src/conveyor-sorter/conveyor-sorter/pous/programs/main.st`. Compiles, uploads and runs headlessly. Two layers: classification runs on every scan so a busy actuator sequence can never sample air instead of the box, and the state machine only drives the actuators.
 - **Acceptance run (TC-13, 10 boxes)** — **green.** `sim/scenarios/acceptance-10.json`: 4 small, 3 large, 3 boxes whose height reading is not trustworthy. Every box lands in the lane it should, counters read 4 / 3 / 3, no faults. All five fault scenarios pass too (`bash sim/run-scenarios.sh`).
 - **TC-01 … TC-34** — **33 PASS, 1 BLOCKED, 0 FAIL** (`.venv/bin/python sim/tests.py`, results and evidence in `docs/TEST-LOG.md`): the I/O map matches the program tag for tag, cold start, Start/Stop, Start refused while the E-Stop is pressed, all three lanes, the short-pulse edge rule, both return sequences, the two-box case, the P4 safety cases, the four HMI cases, the scripted scenario set (TC-31), simultaneous service of both stations with no skipped state or valve overlap (TC-32), and a printout whose tags and states are all commented and which uses standard IEC instructions only (TC-33/34).
-- **P6 demo video** — `docs/demo.mp4` (36 s, recorded with `sim/demo.py` from the live HMI): ten boxes through the line (counters 4 / 3 / 3), E-Stop pressed while pusher 1 is energized (state ESTOP, fault 1, motor and valves off), the two-step recovery (Reset, then Start, counters kept), and HMI Stop / HMI Start on the real buttons.
+- **P6 demo video** — `docs/demo.mp4` (58 s, 1920×1080, 10 fps): an animated 3D view of the line doing the whole acceptance run — ten boxes (counters 4 / 3 / 3), E-Stop pressed while pusher 1 is energized (state ESTOP, fault 1, motor and valves off at once), the two-step recovery (Reset, then Start, counters kept), and HMI Stop / HMI Start clicked on the real FUXA buttons, which stay in a corner of the frame as picture-in-picture. The view is live, not a replay: box positions and lane decisions are the plant simulator's own numbers and the motor, valves, state, counters and fault are the PLC's coils and words, polled at ~16 Hz — so anything the video shows had to actually happen in the controller. `viz/` is the same page and can be opened and driven by hand (drag to orbit, wheel to zoom). The soundtrack is made by `audio/build.py`: the motor bed, air puffs, carton thuds and the E-Stop clunk are synthesised with numpy (there is no industrial recording in the sound bank), the panel tap is rendered from the **earshot** bank by id, and the mix is aimed at −16 LUFS / ≤ −1 dBTP. The earlier HMI-only clip is kept as `docs/hmi.mp4`, and a still of the 3D view is `docs/img/viz-3d.png`. Measurements, including what earshot honestly says about code-synthesised sound, are in `docs/TEST-LOG.md`.
 - **P4 Safety** — E-Stop reachable from every state; both valves forced off in ESTOP and FAULT; two-step recovery (Reset, then a separate Start — releasing the button never restarts the line); pusher extend/return timeouts; the **SR-06** guard (a pusher strokes only while its box is still in the zone — a stale record raises fault 8 instead of stroking into air or letting the box slip down the SMALL lane); motor overload; and no HMI reset path (SR-08). Wiring evidence: `docs/img/wiring.png` (motor power, contactor coil circuit, E-Stop, valve supply, PLC I/O).
 - **P5 HMI** — FUXA screen generated by `fuxa/build.py` (13 tags, one view), served at <http://localhost:1881>, screenshot `docs/img/fuxa.png`. Shows the motor, the three lamps, the state and fault as text, the three counters, and START / STOP. It polls the PLC once a second (TC-28 measured 0.41 s) and has no reset control (TC-30). Losing the HMI changes nothing: the line stopped and restarted from the panel while FUXA was down, counters kept (TC-29). The stock FUXA image ships without `modbus-serial`, so the compose file builds a thin layer that adds it (`fuxa/Dockerfile`).
 - **TC-17 (hardware independence) is BLOCKED, not passed** — proving the E-Stop cuts the motor with the PLC ignored needs the physical relay kit, which is not available. The design evidence is the wiring diagram and `docs/SAFETY.md` §2/§7, and the report states it as blocked.

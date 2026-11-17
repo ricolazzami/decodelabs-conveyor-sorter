@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Conveyor sorter — 3D view</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="caption">connecting to the plant…</div>
+  <div id="pip">
+    <div id="pipinner"><iframe id="hmi" src="http://localhost:1881/" title="FUXA HMI"></iframe></div>
+  </div>
+  <div id="hint">drag to orbit · wheel to zoom · the HMI is the real FUXA screen</div>
+  <script type="importmap">
+    {"imports": {"three": "./vendor/three.module.min.js"}}
+  </script>
+  <script>
+    // ?rec=1 is the recording layout: the HMI area is left empty here because
+    // sim/demo3d.py records the real FUXA window separately and lays it over
+    // that area (a cross-origin iframe cannot be painted into the canvas).
+    if (new URLSearchParams(location.search).has("rec")) {
+      document.getElementById("pip").innerHTML = "";
+      document.getElementById("pip").classList.add("rec");
+      document.getElementById("hint").style.display = "none";
+    }
+  </script>
+  <script type="module" src="scene.js"></script>
+</body>
+</html>
