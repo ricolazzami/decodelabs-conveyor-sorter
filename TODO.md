@@ -103,13 +103,13 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 - [x] Record video: 10-box cycle, E-Stop mid-divert, two-step recovery, HMI (`docs/demo.mp4`, `sim/demo.py`)
 - [x] Replace it with a live animated video: 3D view of the line (`viz/`, `sim/demo3d.py`) driven by the plant simulator and the PLC's own coils and words, FUXA screen as picture-in-picture, captions, soundtrack from `audio/build.py` — `docs/demo.mp4`; the old HMI-only clip kept as `docs/hmi.mp4`
 
-## P7 — Documentation and submission (M5)
+## P7 — Documentation and submission (M5) — DONE
 
-- [ ] Commented ladder printout (PDF, all rungs, headers)
-- [ ] Report: cover, brief restatement, architecture, I/O table, state diagram, safety section with honest limitations, test log, conclusion
-- [ ] Update README status and layout
-- [ ] Commit `src/`, `sim/`, `fuxa/`, `docs/`
-- [ ] Confirm portal format, submit
+- [x] Commented program printout as a PDF (`docs/printout.pdf`, 6 pages, all 385 lines of `main.st` with line numbers and page headers) — Structured Text, not a ladder fake
+- [x] Report: cover, brief restatement, architecture, I/O table, state diagram, safety section with honest limitations, test log, conclusion (`docs/report.pdf`, 10 pages; source `docs/REPORT.md`; built by `docs/build.py`)
+- [x] Update README status and layout
+- [x] Commit `src/`, `sim/`, `fuxa/`, `docs/`
+- [ ] Confirm portal format, submit — pending the portal's accepted file type
 
 ## Stretch (only if ahead)
 

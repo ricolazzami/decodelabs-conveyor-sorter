@@ -33,7 +33,7 @@ Everything else (platform, lane count, numbers) is a decision we made and record
 5. 34 test cases + executed log — `docs/TEST-PLAN.md`, `docs/TEST-LOG.md`
 6. Plant simulator + scenario files — `sim/`
 7. FUXA HMI project + screenshot — `fuxa/`, `docs/img/fuxa.png`
-8. Report and demo video for the portal
+8. Report for the portal — `docs/report.pdf` (10 pages, source `docs/REPORT.md`), plus the commented program listing as a separate PDF — `docs/printout.pdf`
 9. Live 3D view of the line — `viz/` (Three.js, orbit and zoom) driven by `sim/demo3d.py`, plus the same run as a narrated video with sound — `docs/demo.mp4`
 
 ## Repo layout
@@ -52,6 +52,9 @@ sim/                   Python plant simulator (Modbus TCP) + scenarios + demo3d.
 fuxa/                  HMI project (build.py generates it, shot.py screenshots it)
 viz/                   live 3D view of the line (Three.js, vendored locally)
 audio/                 soundtrack build for the demo video (audio/build.py)
+docs/build.py          renders docs/REPORT.md -> docs/report.pdf, main.st -> printout.pdf
+docs/report.pdf        the report
+docs/printout.pdf      commented Structured Text listing (all 385 lines)
 docs/img/              diagrams and screenshots
 ```
 
@@ -96,6 +99,7 @@ Replace them if you get real belt data.
 
 ## Status
 
+- **P7 Documentation and submission** — the report is `docs/report.pdf` (10 pages, source `docs/REPORT.md`, built by `docs/build.py`): cover, brief restatement, architecture, the 14-in / 6-out I/O map, the state diagram, the safety section with its honest limitations, the test log and the conclusion. The commented program is a separate PDF, `docs/printout.pdf` — all 385 lines of `main.st` with line numbers, because the program is Structured Text and a ladder printout would be a fiction. Both are rebuilt in one command: `.venv/bin/python docs/build.py`.
 - **P0 Documentation** — complete (`docs/`, `TODO.md`).
 - **P1 Environment** — OpenPLC Runtime v4 + FUXA run from `docker-compose.yml`. Modbus TCP on port 502, served by the project's own Modbus server so the I/O image sizes come from `project.json`.
 - **P2 Plant simulator** — `sim/plant.py` plus six scenarios and `sim/run-scenarios.sh` (`sim/README.md`). Models the belt, the box queue, both stations, both cylinders and their home/extended sensors, and injects faults: E-Stop, overload, a jammed pusher (extend or return) and a dead station 1 eye. Every box is logged with its truth, its expectation, its lane and its timestamps. All six scenarios pass.
