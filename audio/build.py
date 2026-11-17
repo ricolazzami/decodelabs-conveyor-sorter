@@ -89,33 +89,30 @@ def place(dst: np.ndarray, x: np.ndarray, t: float, gain: float = 1.0, pan: floa
 
 # --- the machine sounds ----------------------------------------------------
 def motor_bed(seconds: float) -> np.ndarray:
-    """Three-phase induction motor on a steel frame: 50 Hz mains hum with its
-    harmonics, a 12 Hz beat from the belt splice, gear whine and bearing noise."""
+    """Belt motor on a steel frame: broadband friction rumble, gear whine and a
+    12 Hz beat from the belt splice.
+
+    Deliberately no mains tone (50 Hz and its harmonics). A pure low tone is what
+    makes a machine sound like a droning hum; the rumble here is band-limited
+    noise, which reads as a belt under load instead."""
     n = int(seconds * FS)
     t = t_of(n)
-    x = np.zeros(n)
-    for k, amp in ((1, 1.00), (2, 0.55), (3, 0.28), (4, 0.14), (6, 0.07), (8, 0.04)):
-        x += amp * np.sin(2 * np.pi * 50 * k * t + k * 0.7)
-    x *= 1.0 + 0.10 * np.sin(2 * np.pi * 12.0 * t)            # splice beat
+    rumble = bandpass(noise(seconds), 45.0, 380.0)                 # far-field rumble
+    body = lowpass(noise(seconds, "pink"), 1100.0)                 # belt over the frame
     whine = 0.10 * np.sin(2 * np.pi * 615 * t) + 0.05 * np.sin(2 * np.pi * 930 * t)
-    hiss = lowpass(noise(seconds, "pink"), 1200.0) * 0.10
-    rumble = bandpass(noise(seconds), 30.0, 220.0) * 0.16
-    y = x * 0.42 + whine + hiss + rumble
+    splice = 1.0 + 0.10 * np.sin(2 * np.pi * 12.0 * t)             # one beat per splice
+    y = (rumble * 0.9 + body * 0.6) * splice + whine
     xmax = max(1e-9, np.abs(y).max())
     return y / xmax
 
 
 def room_tone(seconds: float) -> np.ndarray:
-    """The workshop the machine stands in: HVAC rumble, fan whine, air. Without
-    this the seconds after an E-Stop would be digital silence, not a stopped
-    machine in a room."""
-    n = int(seconds * FS)
-    t = t_of(n)
-    hum = (0.6 * np.sin(2 * np.pi * 100 * t) + 0.25 * np.sin(2 * np.pi * 200 * t + 0.4)
-           + 0.12 * np.sin(2 * np.pi * 300 * t + 0.9))
-    fan = 0.10 * np.sin(2 * np.pi * 1180 * t) + 0.06 * np.sin(2 * np.pi * 47 * t)
-    air = lowpass(noise(seconds, "pink"), 3000.0) * 0.5
-    y = hum * 0.5 + fan + air
+    """The workshop the machine stands in: HVAC air, no tonal drone. Without this
+    the seconds after an E-Stop would be digital silence, not a stopped machine in
+    a room."""
+    air = bandpass(noise(seconds, "pink"), 70.0, 3400.0)
+    hiss = lowpass(noise(seconds), 6000.0) * 0.18
+    y = air + hiss
     return y / max(1e-9, np.abs(y).max())
 
 

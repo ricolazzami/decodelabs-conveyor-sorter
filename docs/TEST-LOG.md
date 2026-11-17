@@ -51,7 +51,7 @@ TC-17 is blocked.
 
 Two clips, both from the live program (never a replay):
 
-- `docs/demo.mp4` — the animated 3D run, with sound (58 s, 1920×1080, 10 fps, h264 + AAC, ~10 MB).
+- `docs/demo.mp4` — the animated 3D run, with sound (56.8 s, 1920×1080, 10 fps, h264 + AAC, ~10 MB).
 - `docs/hmi.mp4` — the earlier HMI-only clip, kept for comparison.
 - `docs/img/viz-3d.png` — a still from the 3D video.
 
@@ -87,7 +87,7 @@ animation shows a pusher stroking or a counter climbing, the controller did it.
 | Recovery 2 of 2 | 0:41-0:44 | a separate Start returns to RUNNING; the box that was in front of pusher 1 has no record any more, so station 2 sends it to REJECT — the design rule at work, not a demo trick |
 | Line alive again | 0:44-0:50 | a fresh box goes straight through; counters kept across the fault |
 | HMI Stop / HMI Start | 0:51-0:55 | real mousedown/mouseup on the FUXA buttons in the picture-in-picture |
-| End | 0:55-0:58 | state and counters on the HMI, safety chain armed |
+| End | 0:55-0:57 | state and counters on the HMI, safety chain armed |
 
 ### Audio evidence (earshot)
 
@@ -97,11 +97,12 @@ the earshot tools:
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Loudness and peaks | `earshot measure audio/demo.wav` | −16.0 LUFS integrated, true peak −1.2 dBTP, LRA 15.9 LU, noise floor −33.3 dBFS |
-| Delivered file | `earshot timeline docs/demo.mp4` | −16.0 LUFS, LRA 15.9 LU (codec overshoot at −0.4 dBTP on the decoded lossy copy) |
-| Sync of cues to sound | `earshot timeline docs/demo.mp4 --cues cues.json` | 24/24 cues have an onset within one frame (chance 70%), median offset 0 ms, 100% land on an accent ≥ 6 dB over the bed (chance 10%) |
+| Loudness and peaks | `earshot measure audio/demo.wav` | −16.0 LUFS integrated, true peak −1.1 dBTP, LRA 14.8 LU, noise floor −37.3 dBFS |
+| Delivered file | `earshot timeline docs/demo.mp4` | −16.1 LUFS, true peak −1.2 dBTP, LRA 19.1 LU, no clipped samples on the decoded lossy copy |
+| Sync of cues to sound | `earshot timeline docs/demo.mp4 --cues cues.json` | 24/24 cues have an onset within one frame (chance 29%), median offset 1 ms, 75% land on an accent ≥ 7 dB over the bed (chance 6%) |
 | No silent holes | same run | after the E-Stop the level reads −29 LUFS (room tone), not silence |
-| Is it code-synthesised? | `earshot realness audio/demo.wav` | p_real 0.55 — "uncertain", 8 of 15 windows lean synthesised. The lowest window (0:00-0:04, p_real 0.16) is the pure numpy motor bed; the highest (0:40-0:44, p_real 0.94) is the same bed with the earshot bank tap on top |
+| No mains hum | FFT of the bed, 20-24 s | 50-300 Hz sits within +6.9 dB of the local noise floor (it was +34 to +39 dB when the bed was a 50 Hz tone); the 615/930 Hz gear whine is kept on purpose |
+| Is it code-synthesised? | `earshot realness audio/demo.wav` | p_real 0.713 — "uncertain", 4 of 15 windows lean synthesised. The lowest window (0:48-0:52, p_real 0.35) is the bare numpy motor bed; the highest (0:04-0:08, p_real 0.929) is the same bed with the earshot bank tap on top |
 
 Honest reading of that last row: earshot hears a mostly synthesised soundtrack,
 which is exactly what it is. Stated in the README and the report; the synthetic
@@ -109,7 +110,7 @@ bed is credited as synthetic.
 
 ### Visual checks
 
-Frames at 3, 12, 20, 28, 34, 40, 48 and 56 s were inspected: the legend, the
+Frames at 4, 12, 24, 35, 44 and 52 s were inspected: the legend, the
 lane colours, the `?` marker on uncertain boxes, the photo-eye beams lighting
 when blocked, the pusher stroke, the picture-in-picture HMI and every caption
 render as intended, and the counters on the HMI agree with the words read back

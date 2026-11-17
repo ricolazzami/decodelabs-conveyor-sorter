@@ -302,7 +302,8 @@ def assemble(t0: float, hmi_frames: list, audio: Path) -> None:
     filters = [
         f"[1:v]scale={inner_w}:{inner_h},setsar=1,"
         f"pad={PIP['w']}:{PIP['h']}:{PIP['border']}:{PIP['border']}:color=0x30363d[hmi]",
-        f"[0:v][hmi]overlay={PIP['x']}:{PIP['y']}:eof_action=pass[v0]",
+        "[0:v]fps=10[base]",          # the canvas stream is real time; keep 10 fps
+        f"[base][hmi]overlay={PIP['x']}:{PIP['y']}:eof_action=pass[v0]",
     ]
     for i, (start, end, path) in enumerate(caption_files):
         filters.append(
@@ -317,6 +318,9 @@ def assemble(t0: float, hmi_frames: list, audio: Path) -> None:
         "-i", str(audio),
         "-filter_complex", graph,
         "-map", f"[v{len(caption_files)}]", "-map", "2:a",
+        # the master leaves the mixer at -1.2 dBTP; AAC adds up to ~2 dB of
+        # overshoot on transients, so shave the codec input a little harder
+        "-af", "alimiter=level=disabled:limit=0.71:attack=1:release=60",
         "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart",
         str(OUT)], check=True)
