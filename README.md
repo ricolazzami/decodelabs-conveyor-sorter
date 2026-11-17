@@ -5,6 +5,13 @@ Track: **Industrial Control & Safety**.
 
 Goal from the brief: *"Design the industrial control logic to sort boxes by size or color on an automated conveyor line."*
 
+## Start here
+
+- **Report** (10 pages, PDF) — [`docs/report.pdf`](docs/report.pdf)
+- **Commented program listing** (all 385 lines of Structured Text) — [`docs/printout.pdf`](docs/printout.pdf)
+- **Demo video** (57 s, 1920×1080, with sound) — [`docs/demo.mp4`](docs/demo.mp4)
+- **Live 3D view of the line** (open in a browser, drag to orbit, wheel to zoom) — [`viz/index.html`](viz/index.html)
+
 ## What the PDF actually asks for
 
 | ID | Requirement (PDF wording) |
