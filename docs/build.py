@@ -5,8 +5,8 @@
 
 HTML is rendered here (a small Markdown subset: headings, tables, lists, code,
 images, links) and Chrome turns it into A4 PDFs with a running header and page
-numbers, so no Python PDF dependency is added. The HTML is a throwaway in
-/tmp/opencode/p7/; the PDFs are the artefacts.
+numbers, so no Python PDF dependency is added. The HTML is a throwaway in a
+temporary directory; the PDFs are the artefacts.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import websocket
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
-WORK = Path("/tmp/opencode/p7")
+WORK = Path(tempfile.mkdtemp(prefix="conveyor-pdf-"))
 PORT = 9231
 
 CSS = """

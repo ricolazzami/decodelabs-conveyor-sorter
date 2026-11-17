@@ -1,127 +1,174 @@
 # Project 4 — PLC-Based Conveyor Sorting System
 
-DecodeLabs Robotics & Automation, Batch 2026 — optional mastery phase.
-Track: **Industrial Control & Safety**.
+**Three lanes, two pneumatic pushers, and an E-Stop the PLC is not allowed to argue with.**
 
-Goal from the brief: *"Design the industrial control logic to sort boxes by size or color on an automated conveyor line."*
+DecodeLabs Robotics & Automation · Batch 2026 · Track: **Industrial Control & Safety**.
+Brief: *"Design the industrial control logic to sort boxes by size or color on an automated
+conveyor line."*
 
-## Start here
+![Ten boxes on the line: one LARGE box already pushed left, a small box running straight to the end, an uncertain box in the reject lane](docs/img/viz-3d.png)
 
-- **Report** (10 pages, PDF) — [`docs/report.pdf`](docs/report.pdf)
-- **Commented program listing** (all 385 lines of Structured Text) — [`docs/printout.pdf`](docs/printout.pdf)
-- **Demo video** (57 s, 1920×1080, with sound) — [`docs/demo.mp4`](docs/demo.mp4)
-- **Live 3D view of the line** (open in a browser, drag to orbit, wheel to zoom) — [`viz/index.html`](viz/index.html)
+*Everything in that frame comes from the running controller — box positions and lane decisions are
+the plant simulator's numbers, the motor, both valves, the state, the three counters and the fault
+code are the PLC's own coils and holding registers, polled at ~16 Hz. Nothing is a replay.*
 
-## What the PDF actually asks for
+| | |
+|---|---|
+| **Controller** | OpenPLC Runtime v4, IEC 61131-3 **Structured Text state machine** (the brief allows ladder *or* a state machine) |
+| **HMI** | FUXA over Modbus TCP — 13 tags, 1 s poll, no reset control by design |
+| **Line** | 14 digital inputs, 6 digital outputs, 2 photo-eye stations in series, 3 lanes |
+| **Test result** | 10-box acceptance run green · **33 pass / 1 blocked / 0 fail** of 34 cases |
+| **Scope** | Simulation only — no hardware was ever connected, and the docs say so everywhere it matters |
 
-| ID | Requirement (PDF wording) |
-|----|---------------------------|
-| R1 | Map digital Inputs (sensors) and Outputs (motors, pneumatic pushers) |
-| R2 | Write industrial Ladder Logic **or** a State Machine to control the sequence of operations |
-| R3 | Implement strict safety interlocks (e.g., E-Stop logic halts all motors immediately) |
+**Deliverables** ·
+[Report (10 pages, PDF)](docs/report.pdf) ·
+[Commented program listing (all 385 lines, PDF)](docs/printout.pdf) ·
+[Demo video (57 s, with sound)](docs/demo.mp4) ·
+[Live 3D view](viz/index.html) *(open locally: drag to orbit, wheel to zoom)*
 
-Everything else (platform, lane count, numbers) is a decision we made and recorded in `docs/DECISIONS.md` — not something the PDF specifies.
+## The HMI
 
-## Build
+![FUXA screen: motor, RUN, FAULT and REJECT lamps, state and fault cause as text, three counters, START and STOP](docs/img/fuxa.png)
 
-- **Sort by size** (tall ≥ 100 mm).
-- **3 lanes, 2 pushers, 2 stations in series:** straight = SMALL, pusher 1 = LARGE, pusher 2 = REJECT.
-- Fail-safe default: valves de-energized = both cylinders retracted = small boxes still sort correctly.
-- **E-Stop is hardwired** into the contactor coil circuit, so the PLC cannot defeat it.
-- **OpenPLC Editor + Runtime v4**, IEC 61131-3 state machine in Structured Text (the brief allows ladder *or* a state machine). **FUXA** web HMI over Modbus TCP.
-- **Simulation only:** a scripted plant simulator drives the PLC over Modbus TCP, so every test is repeatable.
+Four lamps, the state and the fault cause as text, three counters, START and STOP. That is the whole
+screen on purpose: it can stop the line, it cannot clear a safety latch, and losing it changes
+nothing — the panel keeps running (TC-29). It polls the PLC once a second (0.41 s measured).
 
-## Deliverables
+## How a box is sorted
 
-1. I/O map with tag, address, safe state — `docs/ARCHITECTURE.md`
-2. State machine and sequence — `docs/ARCHITECTURE.md`
-3. Structured Text state-machine program with comments — `src/`
-4. Safety design and honest limits — `docs/SAFETY.md`
-5. 34 test cases + executed log — `docs/TEST-PLAN.md`, `docs/TEST-LOG.md`
-6. Plant simulator + scenario files — `sim/`
-7. FUXA HMI project + screenshot — `fuxa/`, `docs/img/fuxa.png`
-8. Report for the portal — `docs/report.pdf` (10 pages, source `docs/REPORT.md`), plus the commented program listing as a separate PDF — `docs/printout.pdf`
-9. Live 3D view of the line — `viz/` (Three.js, orbit and zoom) driven by `sim/demo3d.py`, plus the same run as a narrated video with sound — `docs/demo.mp4`
+```
+         station 1              station 2
+  ───────[ eye ]──────────[ eye ]──────────────▶  lane A  straight  = SMALL  (no actuator, fail-safe)
+             │                                     ▲
+             │  pusher 1 ──────────────────────────┘  lane B  pusher 1 = LARGE
+             └  pusher 2 ─────────────────────────────  lane C  pusher 2 = REJECT
+```
+
+- The station-1 eye sits 60 mm above the belt. A **tall** box (≥ 100 mm) blocks it, a small box does not.
+- Every scan samples the reading, then samples again **200 ms later**. Two clean samples agree on a
+  class; anything else is *uncertain* and goes to REJECT rather than being guessed at.
+- Classification lives **outside** the state machine, so a busy actuator sequence can never sample air
+  where the box used to be. The state machine only drives actuators.
+- Lanes are chosen so a failure lands boxes in a safe place: no actuator = the small lane.
+
+![State machine: IDLE, RUN, SAMPLE, P1_DIVERT, P2_DIVERT, FAULT, ESTOP, with the two-step recovery path](docs/img/state-machine.png)
+
+## Safety — three layers, one of them outside the PLC
+
+![Wiring: motor power and contactor coil through the E-Stop NC chain, valve supply switched by the K1 aux contact, PLC I/O](docs/img/wiring.png)
+
+1. **Hardwired stop.** The E-Stop is a latching NC mushroom switch in series with the K1 contactor
+   coil. Pressing it drops K1 and the motor loses power **whatever the PLC is doing**, including
+   being hung. The same switched 24 V that drops the contactor also removes the valve supply, so
+   both pushers spring home.
+2. **Program stop.** The PLC reads the same chain, enters `ESTOP` from any state, forces both valve
+   outputs off and latches `reset_required`.
+3. **Latching and recovery are separate acts.** Releasing the button never restarts the line:
+   Reset clears the latch, Start is a second, deliberate input. The HMI can Start and Stop but has
+   **no Reset at all** (SR-08), so a screen cannot bypass a safety latch.
+
+Also enforced in the program: pusher extend/return timeouts, never both stations' valves in the same
+scan, a pusher that strokes **only while its box is still in the zone** (a stale record raises fault 8
+instead of stroking into air), motor overload, and a jam detector for two boxes waiting too long.
+
+## The demo video
+
+| E-Stop pressed mid-divert | Two steps later: running again |
+|---|---|
+| ![E-Stop: state ESTOP, fault 1, motor and valves off](docs/img/demo-estop.png) | ![Line running again — the box with no record goes to REJECT](docs/img/demo-recovery.png) |
+
+`docs/demo.mp4` — 57 s, 1920×1080, 10 fps, sound. Ten boxes (counters 4 / 3 / 3), the E-Stop above,
+the Reset-then-Start recovery, and HMI Stop / Start clicked on the real FUXA buttons, which stay in
+the corner as picture-in-picture. One continuous shot, no cuts, real time.
+
+The soundtrack is built by `audio/build.py`: motor bed, air puffs, carton thuds and the E-Stop clunk
+are synthesised with numpy, the panel tap is rendered from the **earshot** sound bank, and the mix
+lands at −16.1 LUFS / −1.2 dBTP with no clipped samples. Measured with earshot, 24 of 24 sound cues
+land on a strong accent within one frame (median 1 ms). Since most of the bed *is* synthesised,
+earshot's `realness` honestly returns p_real 0.713 — "uncertain" — and the README and test log say
+so instead of claiming a field recording. The earlier HMI-only clip is kept as `docs/hmi.mp4`.
+
+## What the PDF asks for, and where it is answered
+
+| Requirement | Answer |
+|---|---|
+| **R1** map digital inputs and outputs | `docs/ARCHITECTURE.md` — 14 in / 6 out, tag, address, safe state, and why the inputs sit in `%MX` (no `%IX` producer exists in this runtime) |
+| **R2** ladder logic **or** a state machine | `src/conveyor-sorter/conveyor-sorter/pous/programs/main.st` — one `CASE` state machine, commented tag by tag; `docs/printout.pdf` is the full listing |
+| **R3** strict safety interlock, E-Stop halts all motors | `docs/SAFETY.md` — three layers above, fault matrix, and a limitations section that starts with "no hardware" |
+
+Everything else — platform, lane count, thresholds, timing — is a decision, recorded with its
+reasoning in `docs/DECISIONS.md`.
+
+## Tests and evidence
+
+- `docs/TEST-PLAN.md` — **TC-01 … TC-34** with pass criteria; the safety cases are non-waivable.
+- `docs/TEST-LOG.md` — every case with its result and evidence.
+- **Run them:** `.venv/bin/python sim/tests.py` (needs the runtime up), or
+  `bash sim/run-scenarios.sh` for the six plant scenarios.
+
+| Result | Count | Notes |
+|---|---|---|
+| PASS | 33 | includes the 10-box acceptance run, both-stations-in-one-scan, and a printout that is fully commented and uses standard IEC instructions only |
+| BLOCKED | 1 | **TC-17**, hardware independence of the E-Stop: needs the physical relay kit, which does not exist here. Evidence supplied is the wiring diagram and `docs/SAFETY.md` §2/§7 |
+| FAIL | 0 | — |
+
+**Honest limits, stated rather than buried:** no hardware was ever connected, so every safety claim
+is design-level; colour is deliberately not implemented (size only — the brief allows either);
+throughput (~45 boxes/min) is an assumption from 400 mm pitch at 0.3 m/s, not a measurement; and
+`T_debounce` is not implemented — the 20 ms scan plus the 200 ms two-sample classifier are the
+filter, and a beam gap inside that window would still read as two boxes (`docs/ARCHITECTURE.md` §8).
 
 ## Repo layout
 
 ```
-README.md
-TODO.md
-docs/REQUIREMENTS.md   traceable requirements
-docs/PRD.md            scope, decisions, risks, milestones
-docs/ARCHITECTURE.md   layout, I/O map, state machine, program structure, HMI map
-docs/SAFETY.md         E-Stop, interlocks, safety matrix, limitations
-docs/TEST-PLAN.md      TC-01 … TC-34
-docs/DECISIONS.md      every grill answer + the one open question
-src/                   OpenPLC program (exported project + Structured Text source)
-sim/                   Python plant simulator (Modbus TCP) + scenarios + demo3d.py
-fuxa/                  HMI project (build.py generates it, shot.py screenshots it)
-viz/                   live 3D view of the line (Three.js, vendored locally)
-audio/                 soundtrack build for the demo video (audio/build.py)
-docs/build.py          renders docs/REPORT.md -> docs/report.pdf, main.st -> printout.pdf
-docs/report.pdf        the report
-docs/printout.pdf      commented Structured Text listing (all 385 lines)
-docs/img/              diagrams and screenshots
+src/       OpenPLC project + main.st (the program)
+sim/       Python plant simulator over Modbus TCP, 6 scenarios, test runner, demo3d.py
+fuxa/      HMI generator (build.py), checker, screenshot tool, project.fuxap
+viz/       live 3D view of the line — Three.js vendored locally, no CDN
+audio/     soundtrack build for the video
+docs/      requirements, PRD, architecture, safety, test plan, test log, decisions
+           report.pdf, printout.pdf, build.py (rebuilds both), img/ (diagrams, screenshots)
 ```
 
 ## Quickstart
 
 ```bash
-# 1. PLC runtime + HMI (the HMI image is stock FUXA plus modbus-serial)
+# 1. PLC runtime + HMI (stock FUXA image plus modbus-serial)
 docker compose up -d --build
 
 # 2. Simulator dependencies
 pip install pymodbus python-socketio
 
 # 3. Open the program in OpenPLC Editor v4, connect to localhost:8443, upload, start
-# 4. Build (or rebuild) the HMI screen and take a screenshot
+# 4. Build the HMI screen and capture it
 python3 fuxa/build.py --apply
-python3 fuxa/shot.py                 # -> docs/img/fuxa.png
-# 5. Run a scenario
+python3 fuxa/shot.py                  # -> docs/img/fuxa.png
+
+# 5. Sort some boxes
 python sim/plant.py --scenario sim/scenarios/acceptance-10.json
 
-# 6. Watch the line move (live 3D view) or record the demo video
-.venv/bin/python sim/demo3d.py --live     # -> http://localhost:8099
-.venv/bin/python sim/demo3d.py            # -> docs/demo.mp4
+# 6. Watch the line move, or re-record the demo
+.venv/bin/python sim/demo3d.py --live  # -> http://localhost:8099
+.venv/bin/python sim/demo3d.py         # -> docs/demo.mp4
+
+# 7. Rebuild the PDFs (headless Chrome, no PDF library needed)
+.venv/bin/python docs/build.py
 ```
 
-The web HMI is at <http://localhost:1881>. Start and Stop work from the screen;
-there is no Reset there on purpose (SR-08).
-
-Native OpenPLC install (Arch supported by the installer):
-
-```bash
-git clone https://github.com/Autonomy-Logic/openplc-runtime.git
-cd openplc-runtime && sudo ./install.sh --native
-```
+HMI: <http://localhost:1881>. Modbus TCP: port 502, served by the project's own server so the I/O
+image sizes come from `project.json`.
 
 ## Numbers that are assumptions, not measurements
 
-- Belt pitch 400 mm, speed 0.3 m/s → ~45 boxes/min (theoretical)
-- Size threshold 100 mm, sensor height 60 mm
-- Cylinder timings: extend 800 ms, return 1000 ms
-
-Replace them if you get real belt data.
-
-## Status
-
-- **P7 Documentation and submission** — the report is `docs/report.pdf` (10 pages, source `docs/REPORT.md`, built by `docs/build.py`): cover, brief restatement, architecture, the 14-in / 6-out I/O map, the state diagram, the safety section with its honest limitations, the test log and the conclusion. The commented program is a separate PDF, `docs/printout.pdf` — all 385 lines of `main.st` with line numbers, because the program is Structured Text and a ladder printout would be a fiction. Both are rebuilt in one command: `.venv/bin/python docs/build.py`.
-- **P0 Documentation** — complete (`docs/`, `TODO.md`).
-- **P1 Environment** — OpenPLC Runtime v4 + FUXA run from `docker-compose.yml`. Modbus TCP on port 502, served by the project's own Modbus server so the I/O image sizes come from `project.json`.
-- **P2 Plant simulator** — `sim/plant.py` plus six scenarios and `sim/run-scenarios.sh` (`sim/README.md`). Models the belt, the box queue, both stations, both cylinders and their home/extended sensors, and injects faults: E-Stop, overload, a jammed pusher (extend or return) and a dead station 1 eye. Every box is logged with its truth, its expectation, its lane and its timestamps. All six scenarios pass.
-- **P3 Program** — Structured Text state machine in `src/conveyor-sorter/conveyor-sorter/pous/programs/main.st`. Compiles, uploads and runs headlessly. Two layers: classification runs on every scan so a busy actuator sequence can never sample air instead of the box, and the state machine only drives the actuators.
-- **Acceptance run (TC-13, 10 boxes)** — **green.** `sim/scenarios/acceptance-10.json`: 4 small, 3 large, 3 boxes whose height reading is not trustworthy. Every box lands in the lane it should, counters read 4 / 3 / 3, no faults. All five fault scenarios pass too (`bash sim/run-scenarios.sh`).
-- **TC-01 … TC-34** — **33 PASS, 1 BLOCKED, 0 FAIL** (`.venv/bin/python sim/tests.py`, results and evidence in `docs/TEST-LOG.md`): the I/O map matches the program tag for tag, cold start, Start/Stop, Start refused while the E-Stop is pressed, all three lanes, the short-pulse edge rule, both return sequences, the two-box case, the P4 safety cases, the four HMI cases, the scripted scenario set (TC-31), simultaneous service of both stations with no skipped state or valve overlap (TC-32), and a printout whose tags and states are all commented and which uses standard IEC instructions only (TC-33/34).
-- **P6 demo video** — `docs/demo.mp4` (57 s, 1920×1080, 10 fps): an animated 3D view of the line doing the whole acceptance run — ten boxes (counters 4 / 3 / 3), E-Stop pressed while pusher 1 is energized (state ESTOP, fault 1, motor and valves off at once), the two-step recovery (Reset, then Start, counters kept), and HMI Stop / HMI Start clicked on the real FUXA buttons, which stay in a corner of the frame as picture-in-picture. The view is live, not a replay: box positions and lane decisions are the plant simulator's own numbers and the motor, valves, state, counters and fault are the PLC's coils and words, polled at ~16 Hz — so anything the video shows had to actually happen in the controller. `viz/` is the same page and can be opened and driven by hand (drag to orbit, wheel to zoom). The soundtrack is made by `audio/build.py`: the motor bed (band-limited noise, no mains hum), air puffs, carton thuds and the E-Stop clunk are synthesised with numpy (there is no industrial recording in the sound bank), the panel tap is rendered from the **earshot** bank by id, and the mix is aimed at −16 LUFS / ≤ −1 dBTP. The earlier HMI-only clip is kept as `docs/hmi.mp4`, and a still of the 3D view is `docs/img/viz-3d.png`. Measurements, including what earshot honestly says about code-synthesised sound, are in `docs/TEST-LOG.md`.
-- **P4 Safety** — E-Stop reachable from every state; both valves forced off in ESTOP and FAULT; two-step recovery (Reset, then a separate Start — releasing the button never restarts the line); pusher extend/return timeouts; the **SR-06** guard (a pusher strokes only while its box is still in the zone — a stale record raises fault 8 instead of stroking into air or letting the box slip down the SMALL lane); motor overload; and no HMI reset path (SR-08). Wiring evidence: `docs/img/wiring.png` (motor power, contactor coil circuit, E-Stop, valve supply, PLC I/O).
-- **P5 HMI** — FUXA screen generated by `fuxa/build.py` (13 tags, one view), served at <http://localhost:1881>, screenshot `docs/img/fuxa.png`. Shows the motor, the three lamps, the state and fault as text, the three counters, and START / STOP. It polls the PLC once a second (TC-28 measured 0.41 s) and has no reset control (TC-30). Losing the HMI changes nothing: the line stopped and restarted from the panel while FUXA was down, counters kept (TC-29). The stock FUXA image ships without `modbus-serial`, so the compose file builds a thin layer that adds it (`fuxa/Dockerfile`).
-- **TC-17 (hardware independence) is BLOCKED, not passed** — proving the E-Stop cuts the motor with the PLC ignored needs the physical relay kit, which is not available. The design evidence is the wiring diagram and `docs/SAFETY.md` §2/§7, and the report states it as blocked.
-- **One deviation from the test plan, stated openly:** `T_debounce` is not implemented; the 20 ms scan and the 200 ms two-sample classification are the filter, and a beam gap inside that window would still read as two boxes (`docs/ARCHITECTURE.md` §8).
-- No hardware has ever been connected. Every safety claim in `docs/SAFETY.md` is design-level only.
+| Value | Why this number |
+|---|---|
+| Belt pitch 400 mm, 0.3 m/s | ~45 boxes/min theoretical; replace with real belt data |
+| Size threshold 100 mm, eye at 60 mm | tall box blocks the beam, small one does not |
+| Cylinder timings: 800 ms extend, 1000 ms return | used for both the stroke and the timeout tests |
 
 ## Notes
 
 - The PDF is a 17-slide Canva deck; only the "Project 4" slide carries technical content.
-- Safety claims are design-level only. No physical kit was available for verification; this is stated in `docs/SAFETY.md` §8 and must stay in the report.
-- All documents are written in plain English.
+- All documents are written in plain English, and every deviation from the brief is listed in
+  `docs/DECISIONS.md` instead of being hidden.
+- Milestones P0–P7 are tracked in `TODO.md`.

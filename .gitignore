@@ -24,3 +24,7 @@ sim/logs/
 # generated soundtrack for the demo video (audio/build.py makes it)
 audio/demo.wav
 audio/demo.raw.wav
+
+# assistant tooling kept out of the repository
+.agents/
+skills-lock.json
