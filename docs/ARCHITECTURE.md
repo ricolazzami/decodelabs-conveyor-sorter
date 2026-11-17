@@ -209,10 +209,43 @@ path (SR-08). `docs/SAFETY.md` §4 lists the same codes with the safety rational
 
 Keep a physical button path too — FUXA is an indicator/extra control, not the only way to stop the line. A web HMI is not a safety device.
 
+### 9.2 The screen that was actually built
+
+`fuxa/build.py` generates `fuxa/project.fuxap` (one view, 13 tags) and `--apply`
+POSTs it to the running FUXA; `docs/img/fuxa.png` is the rendered screen
+(counters 4 / 3 / 3, state RUNNING, fault none).
+
+What the screen shows: conveyor motor, RUN / FAULT / REJECT lamps, the state word
+as text, the fault word as text, the three counters, and a START / STOP pair. It
+has no reset control at all (SR-08). Start and Stop are momentary: mousedown sets
+the coil, mouseup clears it.
+
+Four details cost time and are worth writing down:
+
+- **The stock `frangoteam/fuxa` image has no `modbus-serial`**, so a Modbus TCP
+  device fails with `try to create PLC but plugin is missing!`. `fuxa/Dockerfile`
+  adds it, and `docker-compose.yml` builds the HMI from there
+  (`conveyor-sorter-fuxa:latest`).
+- **Tag ids carry the device prefix** (`PLC^~^CNT_SMALL`). The web client stores
+  received values under the id the device sends and binds a widget by
+  `variableId`, so a tag id without the prefix renders a screen that never moves.
+- **The device polls every 1000 ms** (`"polling": 1000` on the device); FUXA's
+  default is 3 s, which would break the one-second refresh promised in the test
+  plan.
+- **`svg-ext-motor` is a legacy shape** the 1.3.6 client no longer ships, so the
+  motor is a semaphore lamp like the three stack-light lamps. `svg-ext-value`
+  needs its child `<text>`, `svg-ext-html_select` needs a `S-HXS_...` id on the
+  `<SELECT>`, and `svg-ext-html_button` a `B-HXB_...` id on the `<BUTTON>`; those
+  prefixes are how the client finds the element to drive.
+
+`fuxa/check.py` reads the PLC over Modbus and asks the HMI server what it is
+serving, which is TC-27/TC-28; `fuxa/shot.py` takes the screenshot after the
+Angular app has painted.
+
 ## 10. Diagrams
 
 - `docs/img/wiring.png` — power, contactor, E-Stop, valve supply, PLC I/O — **done** (P4)
 - `docs/img/layout.png` — 3 lanes, 2 stations — to produce (docs)
 - `docs/img/state-machine.png` — from §4 — to produce (docs)
-- `docs/img/fuxa.png` — HMI screen — P5
+- `docs/img/fuxa.png` — HMI screen — **done** (P5)
 - Printouts of the program with comments — P7 (the program is Structured Text, not ladder)

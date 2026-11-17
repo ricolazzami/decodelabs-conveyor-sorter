@@ -7,7 +7,7 @@ executed without physical hardware — it is reported, not passed. See
 `docs/TEST-PLAN.md` for what each case is meant to prove and `docs/SAFETY.md` §7
 for why TC-17 is blocked.
 
-## Run 2026-11-17 01:51 — sim/tests.py
+## Run 2026-11-17 09:09 — sim/tests.py
 
 | Case | Result | Evidence |
 |------|--------|----------|
@@ -37,5 +37,9 @@ for why TC-17 is blocked.
 | TC-24 | PASS | states [2, 9]; trip state 9 fault 6 motor False; Reset with the overload still open: state 9 (blocked); Reset once it cleared -> state 0 |
 | TC-25 | PASS | latched in FAULT; HMI Start+Stop written: state 9, fault 6 still standing, motor off. The HMI has no reset coil at all (SR-08), and a Reset via the %MX input path is a simulator artefact, not a field one |
 | TC-26 | PASS | state 4: valve was on=True, valves off after the trip=True, both cylinders home=True, Reset+Start recovers=True; state 6: valve was on=True, valves off after the trip=True, both cylinders home=True, Reset+Start recovers=True |
+| TC-27 | PASS | HMI matches the runtime |
+| TC-28 | PASS | PLC 1/1/1, HMI 1/1/1, matched in 0.41 s |
+| TC-29 | PASS | FUXA down 2 s: line stopped and restarted from the panel only (RUNNING=True), counters kept=True; HMI back and agreeing=True |
+| TC-30 | PASS | HMI Start from IDLE=True, HMI Stop=True, reset widgets on the screen=0 (must be 0) |
 
-25/26 passed, 1 blocked (no hardware), 0 failed.
+29/30 passed, 1 blocked (no hardware), 0 failed.

@@ -207,6 +207,63 @@ class Plc2(Plc):
         self.w(**{name: False})
 
 
+
+class Hmi:
+    """The FUXA web screen, read the way the browser reads it (socket.io).
+
+    `snapshot()` returns the values the HMI server is serving, keyed by the tag
+    name without the device prefix. Used by TC-27...TC-30.
+    """
+
+    TAGS = ["ST_WORD", "CNT_SMALL", "CNT_LARGE", "CNT_REJECT", "FAULT_CODE",
+            "MOTOR_RUN", "P1_VALVE", "P2_VALVE", "LAMP_RUN", "LAMP_FAULT", "LAMP_REJ"]
+
+    def __init__(self, url: str = "http://localhost:1881", device: str = "PLC"):
+        import socketio
+        self.socketio = socketio
+        self.url, self.device = url, device
+
+    def snapshot(self, timeout_s: float = 20.0) -> dict[str, int]:
+        """One *live* frame. The first frame is the server's cached one, so the
+        test waits for the next poll instead of reading a value up to 1 s old."""
+        sio = self.socketio.Client(reconnection=False)
+        got: dict[str, int] = {}
+        frames = [0]
+
+        @sio.on("device-values")
+        def values(msg):
+            if len(msg.get("values", [])) < len(self.TAGS):
+                return
+            for v in msg["values"]:
+                got[v["id"].split("^~^")[-1]] = v["value"]
+            frames[0] += 1
+
+        sio.connect(self.url, transports=["websocket", "polling"])
+        try:
+            sio.emit("device-tags-subscribe",
+                     {"tagsId": [f"{self.device}^~^{t}" for t in self.TAGS],
+                      "sendLastValue": True})
+            end = time.time() + timeout_s
+            while time.time() < end and frames[0] < 2:
+                time.sleep(0.1)
+        finally:
+            sio.disconnect()
+        return got if frames[0] >= 2 else {}
+
+    def matches(self, plc) -> tuple[bool, str]:
+        h = self.snapshot()
+        w, q = plc.read_words(), plc.read_outputs()
+        names = {"state": "ST_WORD", "count_small": "CNT_SMALL",
+                 "count_large": "CNT_LARGE", "count_reject": "CNT_REJECT",
+                 "fault_code": "FAULT_CODE"}
+        want = {names.get(k, k): int(v) for k, v in w.items()}
+        want.update({k: int(v) for k, v in q.items()
+                     if k in ("MOTOR_RUN", "P1_VALVE", "P2_VALVE",
+                              "LAMP_RUN", "LAMP_FAULT", "LAMP_REJ")})
+        bad = {k: (v, h.get(k)) for k, v in want.items() if h.get(k) != v}
+        return not bad, ("HMI matches the runtime" if not bad
+                         else "; ".join(f"{k} PLC {v[0]} vs HMI {v[1]}" for k, v in bad.items()))
+
 # ---------------------------------------------------------------- the cases
 def tc01(ctx) -> tuple[bool, str]:
     """Tag list against the I/O map: 1:1, no orphan."""
@@ -672,13 +729,116 @@ def tc26(ctx) -> tuple[bool, str]:
     return ok, "; ".join(report) if report else "no state reached"
 
 
+
+def tc27(ctx) -> tuple[bool, str]:
+    """FR-11: the HMI shows the same state, counters and lamps as the runtime."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "PLC did not reach RUNNING"
+    time.sleep(0.3)
+    ok, detail = ctx["hmi"].matches(plc)
+    return ok, detail
+
+
+def tc28(ctx) -> tuple[bool, str]:
+    """FR-11/FR-10: 3 boxes, then the HMI counters equal the runtime's within 1 s."""
+    plc, rt, hmi = ctx["plc"], ctx["rt"], ctx["hmi"]
+    rt.cycle()
+    plc.wait_ready()
+    plc.boot()
+    if not plc.start():
+        return False, "PLC did not reach RUNNING"
+    r = plc.feed([Box(id=1, size="small"), Box(id=2, size="large"),
+                  Box(id=3, size="small", uncertain=True)])
+    want = {"CNT_SMALL": r["words"]["count_small"],
+            "CNT_LARGE": r["words"]["count_large"],
+            "CNT_REJECT": r["words"]["count_reject"]}
+    # the HMI polls once a second; give it one poll and measure what it took
+    t0 = time.time()
+    shown: dict = {}
+    while time.time() - t0 < 3.0:
+        shown = hmi.snapshot()
+        if all(shown.get(k) == want[k] for k in ("CNT_SMALL", "CNT_LARGE", "CNT_REJECT")):
+            break
+        time.sleep(0.2)
+    lag = round(time.time() - t0, 2)
+    ok = (all(shown.get(k) == want[k] for k in ("CNT_SMALL", "CNT_LARGE", "CNT_REJECT"))
+          and lag <= 1.5)
+    return ok, (f"PLC {want['CNT_SMALL']}/{want['CNT_LARGE']}/{want['CNT_REJECT']}, "
+                f"HMI {shown.get('CNT_SMALL')}/{shown.get('CNT_LARGE')}/"
+                f"{shown.get('CNT_REJECT')}, matched in {lag} s")
+
+
+def tc29(ctx) -> tuple[bool, str]:
+    """SR-08: losing the HMI changes nothing. Stop FUXA, run the line by hand,
+    start FUXA again: the PLC never stopped and never restarted."""
+    plc = ctx["plc"]
+    plc.boot()
+    if not plc.start():
+        return False, "PLC did not reach RUNNING"
+    before = plc.read_words()
+    subprocess.run(["docker", "compose", "stop", "hmi"], cwd=ROOT, check=True,
+                   stdout=subprocess.DEVNULL)
+    try:
+        time.sleep(2)
+        # the panel keeps working with no HMI: stop, reset, start from the field
+        plc.pulse("PB_STOP")
+        time.sleep(0.5)
+        plc.boot()
+        restarted = plc.start()
+        running = plc.state() == RUNNING
+        counters_kept = plc.read_words()["count_small"] == before["count_small"]
+    finally:
+        subprocess.run(["docker", "compose", "start", "hmi"], cwd=ROOT, check=True,
+                       stdout=subprocess.DEVNULL)
+    # wait for the HMI to come back and agree with the PLC again
+    end = time.time() + 40
+    back, detail = False, "HMI did not reconnect"
+    while time.time() < end:
+        try:
+            back, detail = ctx["hmi"].matches(plc)
+            if back:
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    ok = restarted and running and counters_kept and back
+    return ok, (f"FUXA down 2 s: line stopped and restarted from the panel only "
+                f"(RUNNING={running}), counters kept={counters_kept}; "
+                f"HMI back and agreeing={back}")
+
+
+def tc30(ctx) -> tuple[bool, str]:
+    """SR-08: the screen may start and stop the line, never reset a latch."""
+    plc, rt = ctx["plc"], ctx["rt"]
+    rt.cycle()
+    plc.wait_ready()
+    plc.boot()
+    plc.coil(HMI_START_COIL, True)
+    time.sleep(0.3)
+    plc.coil(HMI_START_COIL, False)
+    started = plc.state() == RUNNING
+    plc.coil(HMI_STOP_COIL, True)
+    time.sleep(0.5)
+    plc.coil(HMI_STOP_COIL, False)
+    stopped = plc.state() != RUNNING
+    project = requests.get("http://localhost:1881/api/project", timeout=10).json()
+    widgets = [it for view in project.get("hmi", {}).get("views", [])
+               for it in view.get("items", {}).values()]
+    reset_widgets = [w for w in widgets if "RESET" in str(w.get("property", {}).get("variable", ""))]
+    ok = started and stopped and not reset_widgets
+    return ok, (f"HMI Start from IDLE={started}, HMI Stop={stopped}, "
+                f"reset widgets on the screen={len(reset_widgets)} (must be 0)")
+
 CASES = [("TC-01", tc01), ("TC-02", tc02), ("TC-03", tc03), ("TC-04", tc04),
          ("TC-05", tc05), ("TC-06", tc06), ("TC-07", tc07), ("TC-08", tc08),
          ("TC-09", tc09), ("TC-10", tc10), ("TC-11", tc11), ("TC-12", tc12),
          ("TC-13", tc13), ("TC-14", tc14), ("TC-15", tc15), ("TC-16", tc16),
          ("TC-17", tc17), ("TC-18", tc18), ("TC-19", tc19), ("TC-20", tc20),
          ("TC-21", tc21), ("TC-22", tc22), ("TC-23", tc23), ("TC-24", tc24),
-         ("TC-25", tc25), ("TC-26", tc26)]
+         ("TC-25", tc25), ("TC-26", tc26), ("TC-27", tc27), ("TC-28", tc28),
+         ("TC-29", tc29), ("TC-30", tc30)]
 
 
 def main() -> int:
@@ -694,7 +854,7 @@ def main() -> int:
             if cid != "TC-01":
                 rt.cycle()
                 plc.wait_ready()
-            ctx = {"plc": plc, "rt": rt}
+            ctx = {"plc": plc, "rt": rt, "hmi": Hmi()}
             try:
                 result, detail = fn(ctx)
             except AssertionError as exc:

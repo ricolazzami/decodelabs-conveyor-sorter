@@ -1,0 +1,520 @@
+{
+  "version": "1.00",
+  "name": "Conveyor sorter",
+  "devices": {
+    "PLC": {
+      "id": "PLC",
+      "name": "PLC",
+      "type": "ModbusTCP",
+      "enabled": true,
+      "polling": 1000,
+      "property": {
+        "address": "plc",
+        "port": 502,
+        "slaveid": 1,
+        "connectionOption": "TcpPort",
+        "timeout": 2000
+      },
+      "tags": {
+        "PLC^~^MOTOR_RUN": {
+          "id": "PLC^~^MOTOR_RUN",
+          "name": "MOTOR_RUN",
+          "type": "Bool",
+          "address": "1",
+          "memaddress": "000000"
+        },
+        "PLC^~^P1_VALVE": {
+          "id": "PLC^~^P1_VALVE",
+          "name": "P1_VALVE",
+          "type": "Bool",
+          "address": "2",
+          "memaddress": "000000"
+        },
+        "PLC^~^P2_VALVE": {
+          "id": "PLC^~^P2_VALVE",
+          "name": "P2_VALVE",
+          "type": "Bool",
+          "address": "3",
+          "memaddress": "000000"
+        },
+        "PLC^~^LAMP_RUN": {
+          "id": "PLC^~^LAMP_RUN",
+          "name": "LAMP_RUN",
+          "type": "Bool",
+          "address": "4",
+          "memaddress": "000000"
+        },
+        "PLC^~^LAMP_FAULT": {
+          "id": "PLC^~^LAMP_FAULT",
+          "name": "LAMP_FAULT",
+          "type": "Bool",
+          "address": "5",
+          "memaddress": "000000"
+        },
+        "PLC^~^LAMP_REJ": {
+          "id": "PLC^~^LAMP_REJ",
+          "name": "LAMP_REJ",
+          "type": "Bool",
+          "address": "6",
+          "memaddress": "000000"
+        },
+        "PLC^~^HMI_START": {
+          "id": "PLC^~^HMI_START",
+          "name": "START",
+          "type": "Bool",
+          "address": "81",
+          "memaddress": "000000"
+        },
+        "PLC^~^HMI_STOP": {
+          "id": "PLC^~^HMI_STOP",
+          "name": "STOP",
+          "type": "Bool",
+          "address": "82",
+          "memaddress": "000000"
+        },
+        "PLC^~^ST_WORD": {
+          "id": "PLC^~^ST_WORD",
+          "name": "ST_WORD",
+          "type": "Int16",
+          "address": "1",
+          "memaddress": "400000"
+        },
+        "PLC^~^CNT_SMALL": {
+          "id": "PLC^~^CNT_SMALL",
+          "name": "CNT_SMALL",
+          "type": "Int16",
+          "address": "2",
+          "memaddress": "400000"
+        },
+        "PLC^~^CNT_LARGE": {
+          "id": "PLC^~^CNT_LARGE",
+          "name": "CNT_LARGE",
+          "type": "Int16",
+          "address": "3",
+          "memaddress": "400000"
+        },
+        "PLC^~^CNT_REJECT": {
+          "id": "PLC^~^CNT_REJECT",
+          "name": "CNT_REJECT",
+          "type": "Int16",
+          "address": "4",
+          "memaddress": "400000"
+        },
+        "PLC^~^FAULT_CODE": {
+          "id": "PLC^~^FAULT_CODE",
+          "name": "FAULT_CODE",
+          "type": "Int16",
+          "address": "5",
+          "memaddress": "400000"
+        }
+      }
+    }
+  },
+  "hmi": {
+    "views": [
+      {
+        "id": "view-main",
+        "name": "Conveyor sorter",
+        "profile": {
+          "width": 1280,
+          "height": 760,
+          "bkcolor": "#f7f9fbff"
+        },
+        "items": {
+          "GSE_00000000-0000-4000-8000-000000000001": {
+            "id": "GSE_00000000-0000-4000-8000-000000000001",
+            "type": "svg-ext-gauge_semaphore",
+            "name": "MOTOR_RUN",
+            "property": {
+              "events": [],
+              "variable": "MOTOR_RUN",
+              "variableId": "PLC^~^MOTOR_RUN",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": "",
+              "ranges": [
+                {
+                  "type": "range",
+                  "min": "0",
+                  "max": "0",
+                  "color": "#bdbdbd"
+                },
+                {
+                  "type": "range",
+                  "min": "1",
+                  "max": "1",
+                  "color": "#2e9e44"
+                }
+              ]
+            },
+            "label": "HtmlSemaphore"
+          },
+          "GSE_00000000-0000-4000-8000-000000000002": {
+            "id": "GSE_00000000-0000-4000-8000-000000000002",
+            "type": "svg-ext-gauge_semaphore",
+            "name": "LAMP_RUN",
+            "property": {
+              "events": [],
+              "variable": "LAMP_RUN",
+              "variableId": "PLC^~^LAMP_RUN",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": "",
+              "ranges": [
+                {
+                  "type": "range",
+                  "min": "0",
+                  "max": "0",
+                  "color": "#bdbdbd"
+                },
+                {
+                  "type": "range",
+                  "min": "1",
+                  "max": "1",
+                  "color": "#2e9e44"
+                }
+              ]
+            },
+            "label": "HtmlSemaphore"
+          },
+          "GSE_00000000-0000-4000-8000-000000000003": {
+            "id": "GSE_00000000-0000-4000-8000-000000000003",
+            "type": "svg-ext-gauge_semaphore",
+            "name": "LAMP_FAULT",
+            "property": {
+              "events": [],
+              "variable": "LAMP_FAULT",
+              "variableId": "PLC^~^LAMP_FAULT",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": "",
+              "ranges": [
+                {
+                  "type": "range",
+                  "min": "0",
+                  "max": "0",
+                  "color": "#bdbdbd"
+                },
+                {
+                  "type": "range",
+                  "min": "1",
+                  "max": "1",
+                  "color": "#d32f2f"
+                }
+              ]
+            },
+            "label": "HtmlSemaphore"
+          },
+          "GSE_00000000-0000-4000-8000-000000000004": {
+            "id": "GSE_00000000-0000-4000-8000-000000000004",
+            "type": "svg-ext-gauge_semaphore",
+            "name": "LAMP_REJ",
+            "property": {
+              "events": [],
+              "variable": "LAMP_REJ",
+              "variableId": "PLC^~^LAMP_REJ",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": "",
+              "ranges": [
+                {
+                  "type": "range",
+                  "min": "0",
+                  "max": "0",
+                  "color": "#bdbdbd"
+                },
+                {
+                  "type": "range",
+                  "min": "1",
+                  "max": "1",
+                  "color": "#f9a825"
+                }
+              ]
+            },
+            "label": "HtmlSemaphore"
+          },
+          "HXS_00000000-0000-4000-8000-000000000020": {
+            "id": "HXS_00000000-0000-4000-8000-000000000020",
+            "type": "svg-ext-html_select",
+            "name": "ST_WORD",
+            "property": {
+              "events": [],
+              "variable": "ST_WORD",
+              "variableId": "PLC^~^ST_WORD",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": "",
+              "ranges": [
+                {
+                  "type": "step",
+                  "min": "0",
+                  "max": "0",
+                  "text": "IDLE"
+                },
+                {
+                  "type": "step",
+                  "min": "1",
+                  "max": "1",
+                  "text": "READY"
+                },
+                {
+                  "type": "step",
+                  "min": "2",
+                  "max": "2",
+                  "text": "RUNNING"
+                },
+                {
+                  "type": "step",
+                  "min": "3",
+                  "max": "3",
+                  "text": "(reserved)"
+                },
+                {
+                  "type": "step",
+                  "min": "4",
+                  "max": "4",
+                  "text": "P1 DIVERT"
+                },
+                {
+                  "type": "step",
+                  "min": "5",
+                  "max": "5",
+                  "text": "P1 RETURN"
+                },
+                {
+                  "type": "step",
+                  "min": "6",
+                  "max": "6",
+                  "text": "P2 DIVERT"
+                },
+                {
+                  "type": "step",
+                  "min": "7",
+                  "max": "7",
+                  "text": "P2 RETURN"
+                },
+                {
+                  "type": "step",
+                  "min": "8",
+                  "max": "8",
+                  "text": "STOPPING"
+                },
+                {
+                  "type": "step",
+                  "min": "9",
+                  "max": "9",
+                  "text": "FAULT"
+                },
+                {
+                  "type": "step",
+                  "min": "10",
+                  "max": "10",
+                  "text": "ESTOP"
+                }
+              ]
+            },
+            "label": "HtmlSelect"
+          },
+          "HXS_00000000-0000-4000-8000-000000000021": {
+            "id": "HXS_00000000-0000-4000-8000-000000000021",
+            "type": "svg-ext-html_select",
+            "name": "FAULT_CODE",
+            "property": {
+              "events": [],
+              "variable": "FAULT_CODE",
+              "variableId": "PLC^~^FAULT_CODE",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": "",
+              "ranges": [
+                {
+                  "type": "step",
+                  "min": "0",
+                  "max": "0",
+                  "text": "none"
+                },
+                {
+                  "type": "step",
+                  "min": "1",
+                  "max": "1",
+                  "text": "E-Stop pressed"
+                },
+                {
+                  "type": "step",
+                  "min": "2",
+                  "max": "2",
+                  "text": "P1 extend timeout"
+                },
+                {
+                  "type": "step",
+                  "min": "3",
+                  "max": "3",
+                  "text": "P1 return timeout"
+                },
+                {
+                  "type": "step",
+                  "min": "4",
+                  "max": "4",
+                  "text": "P2 extend timeout"
+                },
+                {
+                  "type": "step",
+                  "min": "5",
+                  "max": "5",
+                  "text": "P2 return timeout"
+                },
+                {
+                  "type": "step",
+                  "min": "6",
+                  "max": "6",
+                  "text": "motor overload"
+                },
+                {
+                  "type": "step",
+                  "min": "7",
+                  "max": "7",
+                  "text": "box stuck between stations"
+                },
+                {
+                  "type": "step",
+                  "min": "8",
+                  "max": "8",
+                  "text": "no box in pusher zone"
+                }
+              ]
+            },
+            "label": "HtmlSelect"
+          },
+          "VAL_00000000-0000-4000-8000-000000000030": {
+            "id": "VAL_00000000-0000-4000-8000-000000000030",
+            "type": "svg-ext-value",
+            "name": "CNT_SMALL",
+            "property": {
+              "events": [],
+              "variable": "CNT_SMALL",
+              "variableId": "PLC^~^CNT_SMALL",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": ""
+            },
+            "label": "Value"
+          },
+          "VAL_00000000-0000-4000-8000-000000000031": {
+            "id": "VAL_00000000-0000-4000-8000-000000000031",
+            "type": "svg-ext-value",
+            "name": "CNT_LARGE",
+            "property": {
+              "events": [],
+              "variable": "CNT_LARGE",
+              "variableId": "PLC^~^CNT_LARGE",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": ""
+            },
+            "label": "Value"
+          },
+          "VAL_00000000-0000-4000-8000-000000000032": {
+            "id": "VAL_00000000-0000-4000-8000-000000000032",
+            "type": "svg-ext-value",
+            "name": "CNT_REJECT",
+            "property": {
+              "events": [],
+              "variable": "CNT_REJECT",
+              "variableId": "PLC^~^CNT_REJECT",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": ""
+            },
+            "label": "Value"
+          },
+          "HXB_00000000-0000-4000-8000-000000000010": {
+            "id": "HXB_00000000-0000-4000-8000-000000000010",
+            "type": "svg-ext-html_button",
+            "name": "START",
+            "property": {
+              "events": [
+                {
+                  "type": "mousedown",
+                  "action": "onSetValue",
+                  "actparam": "1"
+                },
+                {
+                  "type": "mouseup",
+                  "action": "onSetValue",
+                  "actparam": "0"
+                }
+              ],
+              "variable": "HMI_START",
+              "variableId": "PLC^~^HMI_START",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": ""
+            },
+            "label": "HtmlButton"
+          },
+          "HXB_00000000-0000-4000-8000-000000000011": {
+            "id": "HXB_00000000-0000-4000-8000-000000000011",
+            "type": "svg-ext-html_button",
+            "name": "STOP",
+            "property": {
+              "events": [
+                {
+                  "type": "mousedown",
+                  "action": "onSetValue",
+                  "actparam": "1"
+                },
+                {
+                  "type": "mouseup",
+                  "action": "onSetValue",
+                  "actparam": "0"
+                }
+              ],
+              "variable": "HMI_STOP",
+              "variableId": "PLC^~^HMI_STOP",
+              "variableSrc": "PLC",
+              "alarmId": "",
+              "alarmSrc": "",
+              "alarm": "",
+              "alarmColor": ""
+            },
+            "label": "HtmlButton"
+          }
+        },
+        "variables": {},
+        "svgcontent": "<svg width=\"1280\" height=\"760\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns:html=\"http://www.w3.org/1999/xhtml\"><g><title>Layer 1</title><rect x=\"0\" y=\"0\" width=\"1280\" height=\"760\" fill=\"#f7f9fb\"/><text x=\"40\" y=\"46\" font-family=\"sans-serif\" font-size=\"24\" fill=\"#12181f\" font-weight=\"bold\">Conveyor box sorter \u2014 HMI</text><text x=\"40\" y=\"72\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">OpenPLC Runtime v4 over Modbus TCP \u00b7 sort by size \u00b7 straight = SMALL, pusher 1 = LARGE, pusher 2 = REJECT</text><rect x=\"40\" y=\"100\" width=\"520\" height=\"180\" rx=\"8\" fill=\"#ffffff\" stroke=\"#cfd8e3\"/><text x=\"60\" y=\"130\" font-family=\"sans-serif\" font-size=\"15\" fill=\"#0b3d91\" font-weight=\"bold\">Line</text><g id=\"GSE_00000000-0000-4000-8000-000000000001\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\" text-anchor=\"middle\"><ellipse cx=\"130\" cy=\"195\" rx=\"22\" ry=\"22\" fill=\"#bdbdbd\" stroke=\"#000000\"/></g><text x=\"130\" y=\"252\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">conveyor motor</text><g id=\"GSE_00000000-0000-4000-8000-000000000002\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\" text-anchor=\"middle\"><ellipse cx=\"290\" cy=\"195\" rx=\"22\" ry=\"22\" fill=\"#bdbdbd\" stroke=\"#000000\"/></g><text x=\"290\" y=\"252\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">RUN</text><g id=\"GSE_00000000-0000-4000-8000-000000000003\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\" text-anchor=\"middle\"><ellipse cx=\"380\" cy=\"195\" rx=\"22\" ry=\"22\" fill=\"#bdbdbd\" stroke=\"#000000\"/></g><text x=\"380\" y=\"252\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">FAULT</text><g id=\"GSE_00000000-0000-4000-8000-000000000004\" type=\"svg-ext-gauge_semaphore\" fill=\"#000000\" font-size=\"14\" stroke=\"#000000\" font-family=\"sans-serif\" text-anchor=\"middle\"><ellipse cx=\"470\" cy=\"195\" rx=\"22\" ry=\"22\" fill=\"#bdbdbd\" stroke=\"#000000\"/></g><text x=\"470\" y=\"252\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">REJECT</text><rect x=\"600\" y=\"100\" width=\"300\" height=\"180\" rx=\"8\" fill=\"#ffffff\" stroke=\"#cfd8e3\"/><text x=\"620\" y=\"130\" font-family=\"sans-serif\" font-size=\"15\" fill=\"#0b3d91\" font-weight=\"bold\">Status</text><text x=\"620\" y=\"166\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">state</text><text x=\"620\" y=\"216\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">fault</text><rect x=\"40\" y=\"300\" width=\"520\" height=\"150\" rx=\"8\" fill=\"#ffffff\" stroke=\"#cfd8e3\"/><text x=\"60\" y=\"330\" font-family=\"sans-serif\" font-size=\"15\" fill=\"#0b3d91\" font-weight=\"bold\">Counters</text><g id=\"VAL_00000000-0000-4000-8000-000000000030\" type=\"svg-ext-value\" fill=\"#000000\" stroke-width=\"0\" font-family=\"sans-serif\" text-anchor=\"middle\" font-size=\"28\"><text x=\"110\" y=\"402\" text-anchor=\"middle\" font-family=\"sans-serif\" font-size=\"34\" fill=\"#12181f\">0</text></g><text x=\"110\" y=\"432\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">SMALL (lane A)</text><g id=\"VAL_00000000-0000-4000-8000-000000000031\" type=\"svg-ext-value\" fill=\"#000000\" stroke-width=\"0\" font-family=\"sans-serif\" text-anchor=\"middle\" font-size=\"28\"><text x=\"290\" y=\"402\" text-anchor=\"middle\" font-family=\"sans-serif\" font-size=\"34\" fill=\"#12181f\">0</text></g><text x=\"290\" y=\"432\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">LARGE (lane B)</text><g id=\"VAL_00000000-0000-4000-8000-000000000032\" type=\"svg-ext-value\" fill=\"#000000\" stroke-width=\"0\" font-family=\"sans-serif\" text-anchor=\"middle\" font-size=\"28\"><text x=\"460\" y=\"402\" text-anchor=\"middle\" font-family=\"sans-serif\" font-size=\"34\" fill=\"#12181f\">0</text></g><text x=\"460\" y=\"432\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\" text-anchor=\"middle\">REJECT (lane C)</text><rect x=\"40\" y=\"480\" width=\"520\" height=\"170\" rx=\"8\" fill=\"#ffffff\" stroke=\"#cfd8e3\"/><text x=\"60\" y=\"510\" font-family=\"sans-serif\" font-size=\"15\" fill=\"#0b3d91\" font-weight=\"bold\">Control (web HMI)</text><text x=\"600\" y=\"332\" font-family=\"sans-serif\" font-size=\"15\" fill=\"#0b3d91\" font-weight=\"bold\">What the HMI may and may not do</text><text x=\"600\" y=\"364\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">Start and Stop are allowed from this screen (momentary, held for the click).</text><text x=\"600\" y=\"388\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">There is no Reset control here, by design (SR-08): a safety latch is only</text><text x=\"600\" y=\"412\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">cleared by the physical Reset button on the panel, then a separate Start.</text><text x=\"600\" y=\"436\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">The E-Stop is hardwired in the motor contactor circuit \u2014 the HMI cannot</text><text x=\"600\" y=\"460\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#333333\">defeat it, and losing this screen never stops or restarts the line (TC-29).</text><g id=\"HXB_00000000-0000-4000-8000-000000000010\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"16\" font-family=\"sans-serif\" text-anchor=\"middle\" stroke=\"#000000\"><rect x=\"90\" y=\"545\" width=\"150\" height=\"56\" rx=\"6\" fill=\"#2e9e44\" stroke=\"none\"/><foreignObject id=\"H-HXB_00000000-0000-4000-8000-000000000010\" x=\"90\" y=\"545\" width=\"150\" height=\"56\"><BUTTON id=\"B-HXB_00000000-0000-4000-8000-000000000010\" style=\"width:100%;height:100%;background-color:#2e9e44;color:#ffffff;\" class=\"md-btn md-btn-raised\">START</BUTTON></foreignObject></g><g id=\"HXB_00000000-0000-4000-8000-000000000011\" type=\"svg-ext-html_button\" fill=\"#FFFFFF\" font-size=\"16\" font-family=\"sans-serif\" text-anchor=\"middle\" stroke=\"#000000\"><rect x=\"270\" y=\"545\" width=\"150\" height=\"56\" rx=\"6\" fill=\"#c62828\" stroke=\"none\"/><foreignObject id=\"H-HXB_00000000-0000-4000-8000-000000000011\" x=\"270\" y=\"545\" width=\"150\" height=\"56\"><BUTTON id=\"B-HXB_00000000-0000-4000-8000-000000000011\" style=\"width:100%;height:100%;background-color:#c62828;color:#ffffff;\" class=\"md-btn md-btn-raised\">STOP</BUTTON></foreignObject></g><g id=\"HXS_00000000-0000-4000-8000-000000000020\" type=\"svg-ext-html_select\" text-anchor=\"left\" font-family=\"sans-serif\" font-size=\"16\" fill=\"#000000\"><rect x=\"660\" y=\"142\" width=\"220\" height=\"32\" fill=\"#eef2f7\" stroke=\"#cfd8e3\"/><foreignObject id=\"H-HXS_00000000-0000-4000-8000-000000000020\" x=\"660\" y=\"142\" width=\"220\" height=\"32\"><SELECT id=\"S-HXS_00000000-0000-4000-8000-000000000020\" style=\"width:100%;height:100%;text-align:left;\"></SELECT></foreignObject></g><g id=\"HXS_00000000-0000-4000-8000-000000000021\" type=\"svg-ext-html_select\" text-anchor=\"left\" font-family=\"sans-serif\" font-size=\"16\" fill=\"#000000\"><rect x=\"660\" y=\"192\" width=\"220\" height=\"32\" fill=\"#eef2f7\" stroke=\"#cfd8e3\"/><foreignObject id=\"H-HXS_00000000-0000-4000-8000-000000000021\" x=\"660\" y=\"192\" width=\"220\" height=\"32\"><SELECT id=\"S-HXS_00000000-0000-4000-8000-000000000021\" style=\"width:100%;height:100%;text-align:left;\"></SELECT></foreignObject></g></g></svg>"
+      }
+    ]
+  },
+  "recipes": [],
+  "ar": {
+    "enabled": false,
+    "markers": []
+  },
+  "server": {
+    "id": "0",
+    "name": "FUXA Server",
+    "type": "FuxaServer",
+    "property": {},
+    "polling": 1000
+  }
+}

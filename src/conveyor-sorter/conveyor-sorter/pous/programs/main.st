@@ -112,7 +112,7 @@ END_VAR
 (* ============================================================
    1. Input conditioning and edges
    ============================================================ *)
-stop_cmd  := NOT PB_STOP;
+stop_cmd  := (NOT PB_STOP) OR HMI_STOP;   (* physical NC stop OR the web HMI stop *)
 safety_ok := E_STOP_OK AND MOTOR_OL;
 start_act := PB_START OR HMI_START;
 reset_act := PB_RESET;

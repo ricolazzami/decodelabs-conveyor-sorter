@@ -42,6 +42,18 @@ Restated and accepted:
 
 Frontier is empty. No open questions remain.
 
+
+## Round 5 — HMI (P5), settled while building it
+
+| # | Question | Answer |
+|---|----------|--------|
+| Q27 | How is the HMI authored? | **`fuxa/build.py` generates `fuxa/project.fuxap`** and `--apply` POSTs it to the running FUXA. The generator is the source of truth; the JSON is a build artefact, so the tag map has one place to change. |
+| Q28 | FUXA image | **Stock image plus `modbus-serial`.** `frangoteam/fuxa` does not ship the Modbus driver dependency, so `fuxa/Dockerfile` adds it and `docker-compose.yml` builds `conveyor-sorter-fuxa:latest` from there. |
+| Q29 | Refresh rate | **1000 ms device polling.** FUXA's default is 3 s, which would fail the one-second promise in `docs/TEST-PLAN.md` TC-28. |
+| Q30 | Start/Stop on screen | **Momentary buttons**: mousedown writes coil 1, mouseup writes 0, so a browser that dies mid-click cannot leave Start held. No reset control at all (SR-08). |
+| Q31 | Motor on the screen | **A semaphore lamp, not the motor shape.** `svg-ext-motor` is legacy and the 1.3.6 client no longer drives it; lying about it in a screenshot would be worse than a lamp. |
+| Q32 | How is the HMI checked? | **`fuxa/check.py`** compares the values the HMI server serves with the PLC over Modbus, and **TC-27...TC-30** in `sim/tests.py` run it. `fuxa/shot.py` takes the screenshot over CDP after the app has painted. |
+
 ## Explicitly rejected ideas
 
 - Software E-Stop only — violates SR-03, the graded requirement

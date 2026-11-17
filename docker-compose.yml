@@ -16,7 +16,10 @@ services:
       - ./config/openplc/modbus_slave_config.json:/workdir/core/src/drivers/plugins/python/modbus_slave/modbus_slave_config.json:ro
 
   hmi:
-    image: frangoteam/fuxa:latest
+    # stock FUXA + modbus-serial (the Modbus driver dep is missing upstream)
+    build:
+      context: ./fuxa
+    image: conveyor-sorter-fuxa:latest
     container_name: fuxa
     restart: unless-stopped
     ports:

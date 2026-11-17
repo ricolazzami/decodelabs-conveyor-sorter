@@ -90,11 +90,11 @@ Rule: do not start a task before its dependency is checked. One deliverable per 
 
 ## P5 — HMI (M4)
 
-- [ ] FUXA project: layout, stack light, state, 3 counters, fault cause
-- [ ] Modbus tag map: coils 0–10, holding registers 0–4
-- [ ] Start/Stop from HMI (never Reset)
-- [ ] Run TC-27…TC-30
-- [ ] Screenshot for the report
+- [x] FUXA project: layout, stack light, state, 3 counters, fault cause
+- [x] Modbus tag map: coils 0–5 read, coils 80–81 written, holding registers 0–4
+- [x] Start/Stop from HMI (never Reset)
+- [x] Run TC-27…TC-30 (4 PASS, `docs/TEST-LOG.md`)
+- [x] Screenshot for the report (`docs/img/fuxa.png`)
 
 ## P6 — Verification (M4)
 
